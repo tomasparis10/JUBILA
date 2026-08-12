@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import {
   Search, UserCircle, Pencil, Save, FileText, Upload,
-  Printer, Send, Archive, CheckSquare, PlusCircle, GitBranch, X,
+  Printer, Send, Archive, CheckSquare, PlusCircle, GitBranch, X, CheckCircle2,
 } from 'lucide-react'
 import {
   MOCK_RECORDS,
@@ -14,6 +14,7 @@ import {
   type TrazabilidadEntry,
 } from '@/lib/jubilaciones-data'
 import { FormField, SelectField, SectionCard } from '@/components/form-field'
+import { formatExpediente, formatDate } from '@/lib/format-utils'
 
 // Normalize a string: lowercase + remove diacritics
 function normalize(str: string): string {
@@ -31,6 +32,76 @@ function BtnIcon({ name }: { name: string }) {
   return <FileText className={cls} />
 }
 
+interface FieldDiff {
+  section: string
+  label: string
+  oldVal: string
+  newVal: string
+}
+
+function getRecordDiffs(initial: JubilacionRecord | null, current: JubilacionRecord | null): FieldDiff[] {
+  if (!initial || !current) return []
+  const diffs: FieldDiff[] = []
+
+  const check = (section: string, label: string, key: keyof JubilacionRecord) => {
+    const oldV = String(initial[key] ?? '').trim()
+    const newV = String(current[key] ?? '').trim()
+    if (oldV !== newV) {
+      diffs.push({ section, label, oldVal: oldV || '(vacío)', newVal: newV || '(vacío)' })
+    }
+  }
+
+  // Laboral
+  if (initial.beneficio !== current.beneficio) {
+    const oldLabel = BENEFICIO_OPTIONS.find((b) => b.value === initial.beneficio)?.label ?? initial.beneficio
+    const newLabel = BENEFICIO_OPTIONS.find((b) => b.value === current.beneficio)?.label ?? current.beneficio
+    diffs.push({ section: 'INFORMACIÓN LABORAL', label: 'Beneficio', oldVal: oldLabel, newVal: newLabel })
+  }
+  check('INFORMACIÓN LABORAL', 'Número de Trámite', 'nroTramite')
+  check('INFORMACIÓN LABORAL', 'Fecha Baja', 'fBaja')
+  check('INFORMACIÓN LABORAL', 'Nº Exp. Mun. Renuncia', 'nroExpMunRenuncia')
+  check('INFORMACIÓN LABORAL', 'J. Nº Exp. Caja', 'jNroExpCaja')
+  check('INFORMACIÓN LABORAL', 'Nº Res. Caja', 'nroResRenCaja')
+  check('INFORMACIÓN LABORAL', 'Nº Exp. Caj. Deneg.', 'nroExpCajDeneg')
+
+  // Renovaciones
+  current.renovaciones.forEach((rv, i) => {
+    const oldRv = initial.renovaciones[i] || { nroResRenov: '', nroExpMun: '', fechaDesdeExp: '', fechaHastaExp: '', nroDcto: '' }
+    if (oldRv.nroResRenov !== rv.nroResRenov) {
+      diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} Pase a Repartición`, oldVal: oldRv.nroResRenov || '(vacío)', newVal: rv.nroResRenov || '(vacío)' })
+    }
+    if (oldRv.nroExpMun !== rv.nroExpMun) {
+      diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} N.º Expte. Municipal`, oldVal: oldRv.nroExpMun || '(vacío)', newVal: rv.nroExpMun || '(vacío)' })
+    }
+    if (oldRv.fechaDesdeExp !== rv.fechaDesdeExp) {
+      diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} Fecha Desde`, oldVal: oldRv.fechaDesdeExp || '(vacío)', newVal: rv.fechaDesdeExp || '(vacío)' })
+    }
+    if (oldRv.fechaHastaExp !== rv.fechaHastaExp) {
+      diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} Fecha Hasta`, oldVal: oldRv.fechaHastaExp || '(vacío)', newVal: rv.fechaHastaExp || '(vacío)' })
+    }
+    if (oldRv.nroDcto !== rv.nroDcto) {
+      diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} Decreto/Resolución`, oldVal: oldRv.nroDcto || '(vacío)', newVal: rv.nroDcto || '(vacío)' })
+    }
+  })
+
+  // Pasividad
+  check('PASIVIDAD', 'Fecha de Solicitud', 'fSolicitud')
+  check('PASIVIDAD', 'Fecha Est. Jub. Ordinaria', 'fEstimadaJOrd')
+  check('PASIVIDAD', 'Número Expediente Pasividad', 'nroExpPasividad')
+  check('PASIVIDAD', 'Fecha Firma Convenio', 'fFirmaConvenio')
+  check('PASIVIDAD', 'Fecha Inicio Pasividad', 'fInicioPasividad')
+  check('PASIVIDAD', 'Observaciones Pasividad', 'observacionPasividad')
+
+  // Notificaciones
+  check('NOTIFICACIONES Y SUSPENSIONES', 'Notificación Art. 43', 'notificacionArt43')
+  check('NOTIFICACIONES Y SUSPENSIONES', 'N. Exp. Art. 43 Susp. Pago', 'nExpArt43SuspPago')
+
+  // Observaciones
+  check('OBSERVACIONES', 'Observación', 'observacion')
+
+  return diffs
+}
+
 export default function PanelPrincipal() {
   const [search, setSearch]               = useState('')
   const [selectedId, setSelectedId]       = useState<string | null>(MOCK_RECORDS[MOCK_RECORDS.length - 1].id)
@@ -38,6 +109,14 @@ export default function PanelPrincipal() {
   const [editing, setEditing]                   = useState(false)
   const [notFoundPopup, setNotFoundPopup]       = useState(false)
   const [showTrazabilidad, setShowTrazabilidad] = useState(false)
+  const [showConfirmPopup, setShowConfirmPopup] = useState(false)
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false)
+  const [showEditConfirmPopup, setShowEditConfirmPopup] = useState(false)
+  const [showEditSuccessPopup, setShowEditSuccessPopup] = useState(false)
+
+  const [isCreatingNew, setIsCreatingNew]               = useState(false)
+  const [previousSelectedId, setPreviousSelectedId]     = useState<string | null>(null)
+  const [initialSnapshot, setInitialSnapshot]           = useState<JubilacionRecord | null>(null)
 
   const detailRef = useRef<HTMLDivElement>(null)
   const selected  = records.find((r) => r.id === selectedId) ?? null
@@ -49,6 +128,15 @@ export default function PanelPrincipal() {
     return records.filter((r) =>
       r.dni.includes(norm) || normalize(r.apellidoNombres).includes(norm)
     )
+  }
+
+  const handleSearchAndLoad = () => {
+    const results = filterRecords(search)
+    if (results.length >= 1) {
+      handleSelect(results[0].id)
+    } else {
+      setNotFoundPopup(true)
+    }
   }
 
   // ── Mutations ────────────────────────────────────────────────────────────────
@@ -71,33 +159,39 @@ export default function PanelPrincipal() {
   }
 
   // ── Edit / Save toggle ───────────────────────────────────────────────────────
-  const handleToggleEdit = () => setEditing((prev) => !prev)
-
   const handleSelect = (id: string) => {
     setSelectedId(id)
     setEditing(false)
+    setIsCreatingNew(false)
+    setInitialSnapshot(null)
     setTimeout(
       () => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
       50
     )
   }
 
-  const handleSearchAndLoad = () => {
-    const results = filterRecords(search)
-    if (results.length >= 1) {
-      handleSelect(results[0].id)
-    } else {
-      setNotFoundPopup(true)
-    }
-  }
-
   const handleNew = () => {
+    if (editing) return
     const newId = String(Date.now())
+    const currentBase = selected ?? records[0] ?? MOCK_RECORDS[0]
+    setPreviousSelectedId(selectedId)
     const blank: JubilacionRecord = {
-      id: newId, cuil: '', dni: '', apellidoNombres: '', estadoActivo: true, trazabilidad: [],
-      telefono: '', correo: '',
-      programa: '', secretaria: '', cargo: '', antiguedadRecibo: '', antiguedadLicencias: '',
-      fechaNacimiento: '', edadActual: '', fechaEstimadaJubilacionOrdinaria: '',
+      id: newId,
+      cuil: currentBase.cuil,
+      dni: currentBase.dni,
+      apellidoNombres: currentBase.apellidoNombres,
+      telefono: currentBase.telefono,
+      correo: currentBase.correo,
+      programa: currentBase.programa,
+      secretaria: currentBase.secretaria,
+      cargo: currentBase.cargo,
+      antiguedadRecibo: currentBase.antiguedadRecibo,
+      antiguedadLicencias: currentBase.antiguedadLicencias,
+      fechaNacimiento: currentBase.fechaNacimiento,
+      edadActual: currentBase.edadActual,
+      fechaEstimadaJubilacionOrdinaria: currentBase.fechaEstimadaJubilacionOrdinaria,
+      estadoActivo: true,
+      trazabilidad: currentBase.trazabilidad ? [...currentBase.trazabilidad] : [],
       beneficio: '1', nroTramite: '',
       fBaja: '', nroExpMunRenuncia: '', jNroExpCaja: '', nroResRenCaja: '',
       nroExpCajDeneg: '', fInicExpMunPav: '', nroExpedienteMun: '',
@@ -111,17 +205,68 @@ export default function PanelPrincipal() {
       fEstimadaJOrd: '', nroExpPasividad: '', fFirmaConvenio: '',
       fInicioPasividad: '', observacionPasividad: '', observacion: '',
     }
+    setInitialSnapshot(JSON.parse(JSON.stringify(blank)))
     setRecords((prev) => [blank, ...prev])
     setSelectedId(newId)
+    setIsCreatingNew(true)
     setEditing(true)
+  }
+
+  const handleStartEdit = () => {
+    if (selected) {
+      setInitialSnapshot(JSON.parse(JSON.stringify(selected)))
+      setIsCreatingNew(false)
+      setEditing(true)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    if (isCreatingNew && selectedId) {
+      setRecords((prev) => prev.filter((r) => r.id !== selectedId))
+      setSelectedId(previousSelectedId ?? records.find((r) => r.id !== selectedId)?.id ?? null)
+    } else if (initialSnapshot && selectedId) {
+      setRecords((prev) => prev.map((r) => (r.id === selectedId ? initialSnapshot : r)))
+    }
+    setEditing(false)
+    setIsCreatingNew(false)
+    setInitialSnapshot(null)
+  }
+
+  const handleToggleEdit = () => {
+    if (editing) {
+      if (isCreatingNew) {
+        setShowConfirmPopup(true)
+      } else {
+        setShowEditConfirmPopup(true)
+      }
+    } else {
+      handleStartEdit()
+    }
+  }
+
+  const handleConfirmRegistration = () => {
+    setShowConfirmPopup(false)
+    setEditing(false)
+    setIsCreatingNew(false)
+    setInitialSnapshot(null)
+    setShowSuccessPopup(true)
+  }
+
+  const handleConfirmEdit = () => {
+    setShowEditConfirmPopup(false)
+    setEditing(false)
+    setIsCreatingNew(false)
+    setInitialSnapshot(null)
+    setShowEditSuccessPopup(true)
   }
 
   const ro = !editing
 
   // ── Derived per selected record ──────────────────────────────────────────────
-  // Estado activo: inactivo si tiene Fecha Baja O si alguna renovación tiene fechas provisorias cargadas
+  // Estado activo: inactivo si tiene Fecha Baja, Fecha Inicio Pasividad O si alguna renovación tiene fechas provisorias cargadas
   const isActivo = selected
     ? !selected.fBaja.trim() &&
+      !selected.fInicioPasividad.trim() &&
       !selected.renovaciones.some((rv) => rv.fechaDesdeExp.trim() || rv.fechaHastaExp.trim())
     : false
   // Otorgamiento y Renovaciones siempre visible cuando hay registro seleccionado
@@ -249,6 +394,257 @@ export default function PanelPrincipal() {
           </div>
         )}
 
+        {/* ── Confirmation Popup ────────────────────────────────────────────── */}
+        {showConfirmPopup && selected && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl flex flex-col max-h-[85vh] overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 bg-[#1e3a8a] text-white">
+                <div>
+                  <h3 className="text-base font-bold">Confirmación de Registro de Jubilación</h3>
+                  <p className="text-xs text-blue-200 mt-0.5">
+                    Se está por registrar una nueva jubilación con todos los datos que se agregaron:
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowConfirmPopup(false)}
+                  className="text-white/70 hover:text-white transition p-1 rounded-lg hover:bg-white/10"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Content Body: Formatted Summary by Blocks */}
+              <div className="overflow-y-auto p-6 space-y-4 text-xs">
+                
+                {/* 1. DATOS PERSONALES */}
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1 flex items-center gap-1.5">
+                    <UserCircle className="w-4 h-4" /> DATOS PERSONALES (PRE-CARGADOS)
+                  </h4>
+                  <ul className="pl-4 space-y-1.5 text-slate-700 font-mono">
+                    <li><span className="font-semibold text-slate-900">Apellido y Nombres:</span> {selected.apellidoNombres || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">DNI:</span> {selected.dni || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">CUIL:</span> {selected.cuil || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Programa:</span> {selected.programa || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Secretaría:</span> {selected.secretaria || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Cargo:</span> {selected.cargo || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Antigüedad Recibo:</span> {selected.antiguedadRecibo || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Antigüedad Licencias:</span> {selected.antiguedadLicencias || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Fecha Nacimiento:</span> {selected.fechaNacimiento || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Edad Actual:</span> {selected.edadActual || '—'}</li>
+                  </ul>
+                </div>
+
+                {/* 2. INFORMACIÓN LABORAL */}
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4" /> INFORMACIÓN LABORAL
+                  </h4>
+                  <ul className="pl-4 space-y-1.5 text-slate-700 font-mono">
+                    <li>
+                      <span className="font-semibold text-slate-900">Beneficio:</span>{' '}
+                      {BENEFICIO_OPTIONS.find((b) => b.value === selected.beneficio)?.label ?? '—'}
+                    </li>
+                    <li><span className="font-semibold text-slate-900">Número de Trámite:</span> {selected.nroTramite || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Fecha Baja:</span> {selected.fBaja || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Nº Exp. Mun. Renuncia:</span> {selected.nroExpMunRenuncia || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">J. Nº Exp. Caja:</span> {selected.jNroExpCaja || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Nº Res. Caja:</span> {selected.nroResRenCaja || '—'}</li>
+                    {selected.nroExpCajDeneg && (
+                      <li><span className="font-semibold text-slate-900">Nº Exp. Caj. Deneg.:</span> {selected.nroExpCajDeneg}</li>
+                    )}
+                  </ul>
+                </div>
+
+                {/* 3. OTORGAMIENTO Y RENOVACION PROVISORIAS */}
+                {selected.renovaciones.some((rv) => rv.nroResRenov || rv.nroExpMun || rv.fechaDesdeExp || rv.fechaHastaExp) && (
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1">
+                      OTORGAMIENTO Y RENOVACIÓN PROVISORIAS
+                    </h4>
+                    <ul className="pl-4 space-y-2 text-slate-700 font-mono">
+                      {selected.renovaciones.map((rv, idx) => (
+                        (rv.nroResRenov || rv.nroExpMun || rv.fechaDesdeExp || rv.fechaHastaExp || rv.nroDcto) ? (
+                          <li key={idx} className="border-l-2 border-[#1e3a8a] pl-2.5 py-0.5">
+                            <span className="font-semibold text-slate-900">Fila #{idx + 1}:</span>
+                            {rv.nroResRenov && <div>&nbsp;&nbsp;• Pase a Repartición: {rv.nroResRenov}</div>}
+                            {rv.nroExpMun && <div>&nbsp;&nbsp;• N.º Expte. Municipal: {rv.nroExpMun}</div>}
+                            {rv.fechaDesdeExp && <div>&nbsp;&nbsp;• Fecha Desde: {rv.fechaDesdeExp}</div>}
+                            {rv.fechaHastaExp && <div>&nbsp;&nbsp;• Fecha Hasta: {rv.fechaHastaExp}</div>}
+                            {rv.nroDcto && <div>&nbsp;&nbsp;• N.º Decreto/Resolución: {rv.nroDcto}</div>}
+                          </li>
+                        ) : null
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* 4. PASIVIDAD */}
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1">
+                    PASIVIDAD
+                  </h4>
+                  <ul className="pl-4 space-y-1.5 text-slate-700 font-mono">
+                    <li><span className="font-semibold text-slate-900">Fecha de Solicitud:</span> {selected.fSolicitud || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Fecha Est. Jub. Ordinaria:</span> {selected.fEstimadaJOrd || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Número Expediente Pasividad:</span> {selected.nroExpPasividad || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Fecha Firma Convenio:</span> {selected.fFirmaConvenio || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Fecha Inicio Pasividad:</span> {selected.fInicioPasividad || '—'}</li>
+                    {selected.observacionPasividad && (
+                      <li><span className="font-semibold text-slate-900">Observaciones Pasividad:</span> {selected.observacionPasividad}</li>
+                    )}
+                  </ul>
+                </div>
+
+                {/* 5. NOTIFICACIONES Y SUSPENSIONES */}
+                {(selected.notificacionArt43 || selected.nExpArt43SuspPago) && (
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1">
+                      NOTIFICACIONES Y SUSPENSIONES
+                    </h4>
+                    <ul className="pl-4 space-y-1.5 text-slate-700 font-mono">
+                      {selected.notificacionArt43 && (
+                        <li><span className="font-semibold text-slate-900">Notificación Art. 43:</span> {selected.notificacionArt43}</li>
+                      )}
+                      {selected.nExpArt43SuspPago && (
+                        <li><span className="font-semibold text-slate-900">N. Exp. Art. 43 Susp. Pago:</span> {selected.nExpArt43SuspPago}</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+
+                {/* 6. OBSERVACIONES */}
+                {selected.observacion && (
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1">
+                      OBSERVACIONES
+                    </h4>
+                    <p className="pl-4 text-slate-700 font-mono whitespace-pre-wrap">{selected.observacion}</p>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowConfirmPopup(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm font-semibold transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmRegistration}
+                  className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition flex items-center gap-2 shadow-sm"
+                >
+                  <Save className="w-4 h-4" />
+                  Aceptar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Edit Confirmation Popup ───────────────────────────────────────── */}
+        {showEditConfirmPopup && selected && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl flex flex-col max-h-[85vh] overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 bg-[#1e3a8a] text-white">
+                <div>
+                  <h3 className="text-base font-bold">Confirmación de Edición de Jubilación</h3>
+                  <p className="text-xs text-blue-200 mt-0.5">
+                    Se están por guardar las siguientes modificaciones en la jubilación de <span className="font-semibold">{selected.apellidoNombres}</span>:
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowEditConfirmPopup(false)}
+                  className="text-white/70 hover:text-white transition p-1 rounded-lg hover:bg-white/10"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body: Diff List */}
+              {(() => {
+                const editDiffs = getRecordDiffs(initialSnapshot, selected)
+                return (
+                  <div className="overflow-y-auto p-6 space-y-4 text-xs">
+                    {editDiffs.length === 0 ? (
+                      <div className="p-4 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs leading-relaxed">
+                        No se detectaron modificaciones en los campos de la jubilación.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {Array.from(new Set(editDiffs.map((d) => d.section))).map((section) => (
+                          <div key={section} className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                            <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1">
+                              {section}
+                            </h4>
+                            <ul className="pl-2 space-y-2 text-slate-700 font-mono">
+                              {editDiffs.filter((d) => d.section === section).map((diff, idx) => (
+                                <li key={idx} className="flex flex-col sm:flex-row sm:items-center gap-1 text-xs">
+                                  <span className="font-semibold text-slate-900 min-w-[150px]">• {diff.label}:</span>
+                                  <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded border border-slate-200">
+                                    <span className="line-through text-rose-500 font-medium">{diff.oldVal}</span>
+                                    <span className="text-slate-400">→</span>
+                                    <span className="text-emerald-700 font-bold">{diff.newVal}</span>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* Footer */}
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowEditConfirmPopup(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm font-semibold transition"
+                >
+                  Rechazar / Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmEdit}
+                  className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition flex items-center gap-2 shadow-sm"
+                >
+                  <Save className="w-4 h-4" />
+                  Aceptar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Edit Success Popup ────────────────────────────────────────────── */}
+        {showEditSuccessPopup && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 p-7 max-w-sm w-full mx-4 flex flex-col items-center gap-4 text-center">
+              <div className="flex items-center justify-center w-14 h-14 rounded-full bg-emerald-100 border border-emerald-200">
+                <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-1">¡Edición Exitosa!</h3>
+                <p className="text-sm text-slate-600">
+                  Se editó con éxito la información de la jubilación.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowEditSuccessPopup(false)}
+                className="w-full px-5 py-2.5 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-sm font-semibold transition shadow"
+              >
+                Aceptar
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="p-6">
           <h1 className="text-xl font-bold text-[#1e3a8a] mb-5">Panel Principal</h1>
 
@@ -276,7 +672,12 @@ export default function PanelPrincipal() {
             </button>
             <button
               onClick={handleNew}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition ml-auto"
+              disabled={editing}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold transition ml-auto ${
+                editing
+                  ? 'bg-emerald-600/50 cursor-not-allowed opacity-60'
+                  : 'bg-emerald-600 hover:bg-emerald-700'
+              }`}
             >
               <PlusCircle className="w-4 h-4" />
               Agregar Nuevo
@@ -306,6 +707,15 @@ export default function PanelPrincipal() {
                     <GitBranch className="w-4 h-4" />
                     <span>Trazabilidad</span>
                   </button>
+                  {editing && (
+                    <button
+                      onClick={handleCancelEdit}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition"
+                    >
+                      <X className="w-4 h-4" />
+                      <span>Cancelar</span>
+                    </button>
+                  )}
                   <button
                     onClick={handleToggleEdit}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition ${
@@ -323,11 +733,11 @@ export default function PanelPrincipal() {
                 </div>
               </div>
 
-              {/* ── Card 1: Datos Personales (Con fondo verde clarito) ──────────────── */}
+              {/* ── Card 1: Datos Personales (Con fondo verde o rojo clarito según estado) ── */}
               <SectionCard
                 title="Datos Personales"
-                className="bg-emerald-50/70 border-emerald-200"
-                headerClassName="bg-emerald-100/90 border-emerald-200"
+                className={isActivo ? 'bg-emerald-50/70 border-emerald-200' : 'bg-red-50/70 border-red-200'}
+                headerClassName={isActivo ? 'bg-emerald-100/90 border-emerald-200' : 'bg-red-100/90 border-red-200'}
               >
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {/* 1. CUIL (Primero de todo) */}
@@ -336,7 +746,7 @@ export default function PanelPrincipal() {
                     value={selected.cuil}
                     onChange={(v) => update('cuil', v)}
                     placeholder="20-00000000-0"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 2. DNI */}
                   <FormField
@@ -361,7 +771,7 @@ export default function PanelPrincipal() {
                     value={selected.telefono}
                     onChange={(v) => update('telefono', v)}
                     placeholder="Número de teléfono"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 5. Correo Electrónico */}
                   <FormField
@@ -370,7 +780,7 @@ export default function PanelPrincipal() {
                     onChange={(v) => update('correo', v)}
                     placeholder="correo@ejemplo.com"
                     className="col-span-2"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 6. Programa */}
                   <FormField
@@ -378,7 +788,7 @@ export default function PanelPrincipal() {
                     value={selected.programa}
                     onChange={(v) => update('programa', v)}
                     placeholder="Programa"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 7. Secretaría */}
                   <FormField
@@ -386,7 +796,7 @@ export default function PanelPrincipal() {
                     value={selected.secretaria}
                     onChange={(v) => update('secretaria', v)}
                     placeholder="Secretaría"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 8. Cargo (A continuación de Secretaría) */}
                   <FormField
@@ -394,7 +804,7 @@ export default function PanelPrincipal() {
                     value={selected.cargo}
                     onChange={(v) => update('cargo', v)}
                     placeholder="Cargo desempeñado"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 9. Antigüedad Recibo */}
                   <FormField
@@ -402,7 +812,7 @@ export default function PanelPrincipal() {
                     value={selected.antiguedadRecibo}
                     onChange={(v) => update('antiguedadRecibo', v)}
                     placeholder="Ej: 25 años, 4 meses"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 10. Antigüedad Licencias */}
                   <FormField
@@ -410,7 +820,7 @@ export default function PanelPrincipal() {
                     value={selected.antiguedadLicencias}
                     onChange={(v) => update('antiguedadLicencias', v)}
                     placeholder="Ej: 1 año, 2 meses"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 11. Fecha de Nacimiento */}
                   <FormField
@@ -418,7 +828,7 @@ export default function PanelPrincipal() {
                     value={selected.fechaNacimiento}
                     onChange={(v) => update('fechaNacimiento', v)}
                     placeholder="dd/mm/aaaa"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 12. Edad Actual */}
                   <FormField
@@ -426,7 +836,7 @@ export default function PanelPrincipal() {
                     value={selected.edadActual}
                     onChange={(v) => update('edadActual', v)}
                     placeholder="Ej: 65"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                   {/* 13. Fecha Estimada Jubilación Ordinaria */}
                   <FormField
@@ -435,7 +845,7 @@ export default function PanelPrincipal() {
                     onChange={(v) => update('fechaEstimadaJubilacionOrdinaria', v)}
                     placeholder="dd/mm/aaaa"
                     className="col-span-2"
-                    readOnly={ro}
+                    readOnly={true}
                   />
                 </div>
               </SectionCard>
@@ -556,9 +966,23 @@ export default function PanelPrincipal() {
                                 <input
                                   type="text"
                                   value={rv[field]}
-                                  onChange={(e) => updateRenovacion(i, field, e.target.value)}
+                                  onChange={(e) => {
+                                    let val = e.target.value
+                                    if (field === 'fechaDesdeExp' || field === 'fechaHastaExp') {
+                                      val = formatDate(val)
+                                    } else if (field === 'nroExpMun') {
+                                      val = formatExpediente(val)
+                                    }
+                                    updateRenovacion(i, field, val)
+                                  }}
                                   readOnly={ro}
-                                  placeholder="—"
+                                  placeholder={
+                                    field === 'fechaDesdeExp' || field === 'fechaHastaExp'
+                                      ? 'dd/mm/aaaa'
+                                      : field === 'nroExpMun'
+                                      ? '000.000/00'
+                                      : '—'
+                                  }
                                   className={`w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-200 focus:border-[#1e3a8a] transition min-w-[90px] ${
                                     ro ? 'bg-slate-50 text-slate-500 cursor-default' : ''
                                   }`}

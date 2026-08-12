@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { formatExpediente, formatDate } from '@/lib/format-utils'
 
 interface FieldProps {
   label: string
@@ -9,6 +10,7 @@ interface FieldProps {
   className?: string
   type?: string
   small?: boolean
+  mask?: 'expediente' | 'date'
 }
 
 export function FormField({
@@ -20,7 +22,27 @@ export function FormField({
   className,
   type = 'text',
   small = false,
+  mask,
 }: FieldProps) {
+  const handleChange = (rawVal: string) => {
+    if (!onChange) return
+    const effectiveMask =
+      mask ??
+      (placeholder === '000.000/00'
+        ? 'expediente'
+        : placeholder === 'dd/mm/aaaa'
+        ? 'date'
+        : undefined)
+
+    if (effectiveMask === 'expediente') {
+      onChange(formatExpediente(rawVal))
+    } else if (effectiveMask === 'date') {
+      onChange(formatDate(rawVal))
+    } else {
+      onChange(rawVal)
+    }
+  }
+
   return (
     <div className={cn('flex flex-col gap-1', className)}>
       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">
@@ -29,7 +51,7 @@ export function FormField({
       <input
         type={type}
         value={value}
-        onChange={(e) => onChange?.(e.target.value)}
+        onChange={(e) => handleChange(e.target.value)}
         readOnly={readOnly}
         placeholder={placeholder ?? '—'}
         className={cn(
