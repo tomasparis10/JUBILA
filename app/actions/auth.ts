@@ -19,6 +19,11 @@ export async function loginUsuario(
   contrasena: string,
 ): Promise<LoginResult> {
   try {
+    if (!process.env.DATABASE_URL) {
+      console.error('[loginUsuario] DATABASE_URL no está configurada en las variables de entorno.')
+      return { ok: false, error: 'DATABASE_URL no está configurada en las variables de entorno de la aplicación.' }
+    }
+
     if (!nombreUsuario.trim() || !contrasena.trim()) {
       return { ok: false, error: 'Usuario y contraseña son obligatorios.' }
     }
@@ -32,7 +37,6 @@ export async function loginUsuario(
     }
 
     // Comparación directa (si las passwords están en texto plano en la DB)
-    // Si están hasheadas con bcrypt, reemplazar por: await bcrypt.compare(contrasena, usuario.CONTRASENA_USUARIO)
     const passwordOk = contrasena === usuario.CONTRASENA_USUARIO
 
     if (!passwordOk) {
@@ -53,8 +57,9 @@ export async function loginUsuario(
       userId: usuario.ID_USUARIO,
     }
   } catch (error) {
-    console.error('[loginUsuario] Error:', error)
-    return { ok: false, error: 'Error al conectar con el servidor. Intente nuevamente.' }
+    console.error('[loginUsuario] Error detallado:', error)
+    const msg = error instanceof Error ? error.message : String(error)
+    return { ok: false, error: `Error al conectar con la base de datos (${msg.slice(0, 120)}).` }
   }
 }
 
