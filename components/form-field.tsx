@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { formatExpediente, formatDate } from '@/lib/format-utils'
+import { formatExpediente, formatDate, formatCuil, formatLettersOnly, formatDigitsOnly } from '@/lib/format-utils'
 
 interface FieldProps {
   label: string
@@ -10,7 +10,7 @@ interface FieldProps {
   className?: string
   type?: string
   small?: boolean
-  mask?: 'expediente' | 'date'
+  mask?: 'expediente' | 'date' | 'cuil' | 'letters' | 'digits'
 }
 
 export function FormField({
@@ -32,12 +32,20 @@ export function FormField({
         ? 'expediente'
         : placeholder === 'dd/mm/aaaa'
         ? 'date'
+        : placeholder === '20-00000000-0'
+        ? 'cuil'
         : undefined)
 
     if (effectiveMask === 'expediente') {
       onChange(formatExpediente(rawVal))
     } else if (effectiveMask === 'date') {
       onChange(formatDate(rawVal))
+    } else if (effectiveMask === 'cuil') {
+      onChange(formatCuil(rawVal))
+    } else if (effectiveMask === 'letters') {
+      onChange(formatLettersOnly(rawVal))
+    } else if (effectiveMask === 'digits') {
+      onChange(formatDigitsOnly(rawVal))
     } else {
       onChange(rawVal)
     }
@@ -54,6 +62,7 @@ export function FormField({
         onChange={(e) => handleChange(e.target.value)}
         readOnly={readOnly}
         placeholder={placeholder ?? '—'}
+        autoComplete="off"
         className={cn(
           'rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-300',
           'focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a] transition',

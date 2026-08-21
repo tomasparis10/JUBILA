@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model ARCHIVO_JUBILACION {
+  ID_ARCHIVO     Int      @id(map: "PK__ARCHIVO___E2F250292B898A87") @default(autoincrement())
+  ID_JUBILA      Int
+  NOMBRE_ARCHIVO String   @db.VarChar(255)
+  TIPO_ARCHIVO   String?  @db.VarChar(100)
+  DATOS_ARCHIVO  Bytes
+  FECHA_SUBIDA   DateTime
+  USUARIO_SUBIDA Int      @default(1, map: "DF__ARCHIVO_J__USUAR__17F790F9")
+  JUBILA         JUBILA   @relation(fields: [ID_JUBILA], references: [ID_JUBILA], onDelete: Cascade, onUpdate: NoAction, map: "fk_ARCHIVO_JUBILA")
+  USUARIO        USUARIO  @relation(fields: [USUARIO_SUBIDA], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_ARCHIVO_USUARIO")
+}
+
+model BENEFICIO {
+  ID_BENEFICIO        Int                   @id(map: "PK__BENEFICI__359D6A0B0E5AB44B") @default(autoincrement())
+  NOMBRE              String                @db.VarChar(255)
+  DESCRIPCION         String?               @db.VarChar(500)
+  HISTORIAL_BENEFICIO HISTORIAL_BENEFICIO[]
+}
+
+model DATOS_PERSONALES_AGENTE_JUBILA {
+  ID_DATOS_PERSONALES_AGENTE_JUBILA   Int                 @id(map: "PK__DATOS_PE__57B79B1EFC671D62") @default(autoincrement())
+  ID_REGIMEN_JUBILATORIO              Int
+  DNI_AGENTE                          String              @unique(map: "UQ__DATOS_PE__0CB30166200518FE") @db.VarChar(50)
+  NOMBRE_AGENTE                       String              @db.VarChar(255)
+  APELLIDO_AGENTE                     String              @db.VarChar(255)
+  FECHA_NACIMIENTO                    DateTime            @db.Date
+  SECRETARIA                          String?             @db.VarChar(255)
+  PROGRAMA                            String?             @db.VarChar(255)
+  CARGO                               String?             @db.VarChar(255)
+  SEXO                                String?             @db.VarChar(50)
+  ANTIGUEDAD_RECIBO                   DateTime?           @db.Date
+  ANTIGUEDAD_LICENCIAS                DateTime?           @db.Date
+  FECHA_ESTIMADA_JUBILACI_N_ORDINARIA DateTime?           @map("FECHA_ESTIMADA_JUBILACIÓN_ORDINARIA") @db.Date
+  EDAD_ESTIMACION_JUBILACION          Int?
+  ESTADO_ACTIVO                       Boolean             @default(true, map: "DF__DATOS_PER__ESTAD__0D7A0286")
+  CUIL                                String?             @db.VarChar(20)
+  NUMERO_TELEFONO                     String?             @db.VarChar(50)
+  CORREO_ELECTRONICO                  String?             @db.VarChar(255)
+  REGIMEN_JUBILATORIO                 REGIMEN_JUBILATORIO @relation(fields: [ID_REGIMEN_JUBILATORIO], references: [ID_REGIMEN_JUBILATORIO], onUpdate: NoAction, map: "fk_AGENTE_REGIMEN")
+  JUBILA                              JUBILA[]
+}
+
+model HISTORIAL_BENEFICIO {
+  ID_HISTORIAL_BENEFICIO      Int       @id(map: "PK__HISTORIA__17D1D2A87070E491") @default(autoincrement())
+  ID_JUBILA                   Int
+  ID_BENEFICIO                Int
+  FECHA_INICIO_BENEFICIO      DateTime  @db.Date
+  FECHA_FIN_BENEFICIO         DateTime? @db.Date
+  USUARIO_ULTIMA_MODIFICACION Int       @default(1, map: "DF__HISTORIAL__USUAR__1F98B2C1")
+  BENEFICIO                   BENEFICIO @relation(fields: [ID_BENEFICIO], references: [ID_BENEFICIO], onUpdate: NoAction, map: "fk_HISTORIAL_BENEFICIO_TIPO")
+  JUBILA                      JUBILA    @relation(fields: [ID_JUBILA], references: [ID_JUBILA], onDelete: Cascade, onUpdate: NoAction, map: "fk_HISTORIAL_JUBILA")
+  USUARIO                     USUARIO   @relation(fields: [USUARIO_ULTIMA_MODIFICACION], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_HISTORIAL_USUARIO")
+}
+
+model JUBILA {
+  ID_JUBILA                                                Int                                   @id(map: "PK__JUBILA__D2716A6E1CA75C1F") @default(autoincrement())
+  ID_AGENTE                                                Int
+  INFORMACION_LABORAL_NUMERO_TRAMITE                       String?                               @db.VarChar(255)
+  INFORMACION_LABORAL_FECHA_BAJA                           DateTime?                             @db.Date
+  INFORMACION_LABORAL_NUMERO_EXPEDIENTE_MUNICIPAL_RENUNCIA String?                               @db.VarChar(255)
+  INFORMACION_LABORAL_JUBILACION_NUMERO_EXPEDIENTE_CAJA    String?                               @db.VarChar(255)
+  INFORMACION_LABORAL_NUMERO_RESOLUCION_CAJA               String?                               @db.VarChar(255)
+  INFORMACION_LABORAL_NUMERO_EXPEDIENTE_CAJA_DENEGADA      String?                               @db.VarChar(255)
+  PASIVIDAD_FECHA_SOLICITUD                                DateTime?                             @db.Date
+  PASIVIDAD_FECHA_ESTIMADA_JUBILACION_ORDINARIA            DateTime?                             @db.Date
+  PASIVIDAD_NUMERO_EXPEDIENTE_PASIVIDAD                    String?                               @db.VarChar(255)
+  PASIVIDAD_FECHA_FIRMA_CONVENIO                           DateTime?                             @db.Date
+  PASIVIDAD_FECHA_INICIO_PASIVIDAD                         DateTime?                             @db.Date
+  PASIVIDAD_OBSERVACIONES_PASIVIDAD                        String?                               @db.VarChar(500)
+  NOTIFICACION_ARTICULO_CUARENTAYTRES                      DateTime?                             @db.Date
+  NOTIFICACION_NUMERO_EXPEDIENTE_SUSPENCION_PAGO           String?                               @db.VarChar(255)
+  OBSERVACIONES                                            String?                               @db.VarChar(500)
+  FECHA_INICIO_CREACION_JUBILA                             DateTime
+  USUARIO_CREACION                                         Int                                   @default(1, map: "DF__JUBILA__USUARIO___114A936A")
+  FECHA_ULTIMA_MODIFICACION                                DateTime?
+  USUARIO_MODIFICACION                                     Int?
+  BIT_BORRADO                                              Boolean                               @default(false, map: "DF__JUBILA__BIT_BORR__123EB7A3")
+  ARCHIVO_JUBILACION                                       ARCHIVO_JUBILACION[]
+  HISTORIAL_BENEFICIO                                      HISTORIAL_BENEFICIO[]
+  DATOS_PERSONALES_AGENTE_JUBILA                           DATOS_PERSONALES_AGENTE_JUBILA        @relation(fields: [ID_AGENTE], references: [ID_DATOS_PERSONALES_AGENTE_JUBILA], onUpdate: NoAction, map: "fk_JUBILA_AGENTE")
+  USUARIO_JUBILA_USUARIO_CREACIONToUSUARIO                 USUARIO                               @relation("JUBILA_USUARIO_CREACIONToUSUARIO", fields: [USUARIO_CREACION], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_JUBILA_USUARIO_CREACION")
+  USUARIO_JUBILA_USUARIO_MODIFICACIONToUSUARIO             USUARIO?                              @relation("JUBILA_USUARIO_MODIFICACIONToUSUARIO", fields: [USUARIO_MODIFICACION], references: [ID_USUARIO], onDelete: NoAction, onUpdate: NoAction, map: "fk_JUBILA_USUARIO_MODIFICACION")
+  OTORGAMIENTO_RENOVACION_PROVISORIAS                      OTORGAMIENTO_RENOVACION_PROVISORIAS[]
+}
+
+model OTORGAMIENTO_RENOVACION_PROVISORIAS {
+  ID_OTORGAMIENTO_RENOVACION_PROVISORIAS Int       @id(map: "PK__OTORGAMI__89CCD18557FBBBA7") @default(autoincrement())
+  ID_JUBILA                              Int
+  NUMERO_RESOLUCION_RENOVACION           String?   @db.VarChar(255)
+  NUMERO_EXPEDIENTE_MUNICIPAL            String?   @db.VarChar(255)
+  FECHA_DESDE_PROVISORIA                 DateTime?
+  FECHA_HASTA_PROVISORIA                 DateTime?
+  NUMERO_DECRETO_RESOLUCION_MUNICIPAL    String?   @db.VarChar(255)
+  JUBILA                                 JUBILA    @relation(fields: [ID_JUBILA], references: [ID_JUBILA], onDelete: Cascade, onUpdate: NoAction, map: "fk_OTORGAMIENTO_JUBILA")
+}
+
+model REGIMEN_JUBILATORIO {
+  ID_REGIMEN_JUBILATORIO         Int                              @id(map: "PK__REGIMEN___ACF78BB46A8B8962") @default(autoincrement())
+  NOMBRE_REGIMEN                 String                           @db.VarChar(255)
+  SEXO                           String?                          @db.VarChar(50)
+  EDAD_REQUERIDA                 Int
+  ANOS_APORTES_REQUERIDOS        Int
+  DESCRIPCION                    String?                          @db.VarChar(500)
+  DATOS_PERSONALES_AGENTE_JUBILA DATOS_PERSONALES_AGENTE_JUBILA[]
+}
+
+model SESION {
+  ID_SESION         Int       @id(map: "PK__SESION__4D1F3E2A632B6A2A") @default(autoincrement())
+  ID_USUARIO        Int
+  FECHA_HORA_INICIO DateTime
+  FECHA_HORA_FIN    DateTime?
+  USUARIO           USUARIO   @relation(fields: [ID_USUARIO], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_SESION_USUARIO")
+}
+
+model sysdiagrams {
+  name         String @db.NVarChar(128)
+  principal_id Int
+  diagram_id   Int    @id(map: "PK__sysdiagr__C2B05B61A1FA324B") @default(autoincrement())
+  version      Int?
+  definition   Bytes?
+
+  @@unique([principal_id, name], map: "UK_principal_name")
+}
+
+model USUARIO {
+  ID_USUARIO                                  Int                   @id(map: "PK__USUARIO__91136B906C680EBA") @default(autoincrement())
+  NOMBRE_USUARIO                              String                @unique(map: "UQ__USUARIO__1E139900200EE1AC") @db.VarChar(255)
+  CONTRASENA_USUARIO                          String                @db.VarChar(255)
+  ARCHIVO_JUBILACION                          ARCHIVO_JUBILACION[]
+  HISTORIAL_BENEFICIO                         HISTORIAL_BENEFICIO[]
+  JUBILA_JUBILA_USUARIO_CREACIONToUSUARIO     JUBILA[]              @relation("JUBILA_USUARIO_CREACIONToUSUARIO")
+  JUBILA_JUBILA_USUARIO_MODIFICACIONToUSUARIO JUBILA[]              @relation("JUBILA_USUARIO_MODIFICACIONToUSUARIO")
+  SESION                                      SESION[]
+}

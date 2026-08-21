@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { Shield, User, Lock, LogIn, Eye, EyeOff } from 'lucide-react'
+import { Shield, User, Lock, LogIn, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { loginUsuario } from '@/app/actions/auth'
 
 interface LoginPageProps {
-  onLogin: (username: string) => void
+  onLogin: (username: string, userId: number) => void
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
@@ -14,7 +15,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     if (!username.trim() || !password.trim()) {
@@ -22,11 +23,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       return
     }
     setLoading(true)
-    // Simulate auth delay
-    setTimeout(() => {
+    try {
+      const result = await loginUsuario(username.trim(), password.trim())
+      if (result.ok && result.username && result.userId != null) {
+        onLogin(result.username, result.userId)
+      } else {
+        setError(result.error ?? 'Usuario o contraseña incorrectos.')
+      }
+    } catch {
+      setError('Error de conexión. Intente nuevamente.')
+    } finally {
       setLoading(false)
-      onLogin(username.trim())
-    }, 800)
+    }
   }
 
   return (
@@ -109,11 +117,16 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white font-semibold text-sm transition disabled:opacity-60 disabled:cursor-not-allowed mt-1"
             >
               {loading ? (
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Verificando...
+                </span>
               ) : (
-                <LogIn className="w-4 h-4" />
+                <>
+                  <LogIn className="w-4 h-4" />
+                  Ingresar al Sistema
+                </>
               )}
-              Ingresar al Sistema
             </button>
           </form>
 

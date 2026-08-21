@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Search, UserCircle, Pencil, Save, FileText, Upload,
   Printer, Send, Archive, CheckSquare, PlusCircle, GitBranch, X, CheckCircle2,
+  Loader2, AlertCircle,
 } from 'lucide-react'
 import {
-  MOCK_RECORDS,
   BENEFICIO_OPTIONS,
   BOTONES_POR_BENEFICIO,
   type JubilacionRecord,
@@ -14,7 +14,8 @@ import {
   type TrazabilidadEntry,
 } from '@/lib/jubilaciones-data'
 import { FormField, SelectField, SectionCard } from '@/components/form-field'
-import { formatExpediente, formatDate } from '@/lib/format-utils'
+import { formatExpediente, formatDate, formatCuil, extractDniFromCuil } from '@/lib/format-utils'
+import { searchAgentes, updateJubila, createJubila, createAgente, getLastRecord } from '@/app/actions/agentes'
 
 // Normalize a string: lowercase + remove diacritics
 function normalize(str: string): string {
@@ -104,8 +105,8 @@ function getRecordDiffs(initial: JubilacionRecord | null, current: JubilacionRec
 
 export default function PanelPrincipal() {
   const [search, setSearch]               = useState('')
-  const [selectedId, setSelectedId]       = useState<string | null>(MOCK_RECORDS[MOCK_RECORDS.length - 1].id)
-  const [records, setRecords]             = useState<JubilacionRecord[]>(MOCK_RECORDS)
+  const [selectedId, setSelectedId]       = useState<string | null>(null)
+  const [records, setRecords]             = useState<JubilacionRecord[]>([])
   const [editing, setEditing]                   = useState(false)
   const [notFoundPopup, setNotFoundPopup]       = useState(false)
   const [showTrazabilidad, setShowTrazabilidad] = useState(false)
@@ -118,31 +119,70 @@ export default function PanelPrincipal() {
   const [previousSelectedId, setPreviousSelectedId]     = useState<string | null>(null)
   const [initialSnapshot, setInitialSnapshot]           = useState<JubilacionRecord | null>(null)
 
+  // ── Loading / error states ───────────────────────────────────────────────
+  const [loadingSearch, setLoadingSearch] = useState(false)
+  const [loadingRecord, setLoadingRecord] = useState(false)
+  const [savingRecord, setSavingRecord]   = useState(false)
+  const [globalError, setGlobalError]     = useState<string | null>(null)
+
   const detailRef = useRef<HTMLDivElement>(null)
   const selected  = records.find((r) => r.id === selectedId) ?? null
 
-  // ── Filter (used on click, not reactive) ────────────────────────────────────
-  const filterRecords = (q: string) => {
-    const norm = normalize(q.trim())
-    if (!norm) return records
-    return records.filter((r) =>
-      r.dni.includes(norm) || normalize(r.apellidoNombres).includes(norm)
-    )
-  }
-
-  const handleSearchAndLoad = () => {
-    const results = filterRecords(search)
-    if (results.length >= 1) {
-      handleSelect(results[0].id)
-    } else {
-      setNotFoundPopup(true)
+  // ── Carga inicial: último registro al montar ─────────────────────────────
+  useEffect(() => {
+    let cancelled = false
+    async function loadInitial() {
+      setLoadingRecord(true)
+      try {
+        const last = await getLastRecord()
+        if (!cancelled && last) {
+          setRecords([last])
+          setSelectedId(last.id)
+        }
+      } catch {
+        // No bloqueamos el panel si falla la carga inicial
+      } finally {
+        if (!cancelled) setLoadingRecord(false)
+      }
     }
-  }
+    loadInitial()
+    return () => { cancelled = true }
+  }, [])
+
+  // ── Search via Server Action ─────────────────────────────────────────────
+  const handleSearchAndLoad = useCallback(async () => {
+    const q = search.trim()
+    if (!q) return
+    setLoadingSearch(true)
+    setGlobalError(null)
+    try {
+      const results = await searchAgentes(q)
+      if (results.length >= 1) {
+        setRecords(results)
+        handleSelectId(results[0].id)
+      } else {
+        setNotFoundPopup(true)
+      }
+    } catch (err) {
+      setGlobalError('Error al buscar en la base de datos. Verifique la conexión.')
+    } finally {
+      setLoadingSearch(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const update = (field: keyof JubilacionRecord, value: string) => {
     setRecords((prev) =>
       prev.map((r) => (r.id === selectedId ? { ...r, [field]: value } : r))
+    )
+  }
+
+  const updateCuil = (rawVal: string) => {
+    const cuil = formatCuil(rawVal)
+    const dni = extractDniFromCuil(rawVal)
+    setRecords((prev) =>
+      prev.map((r) => (r.id === selectedId ? { ...r, cuil, dni } : r))
     )
   }
 
@@ -158,8 +198,8 @@ export default function PanelPrincipal() {
     )
   }
 
-  // ── Edit / Save toggle ───────────────────────────────────────────────────────
-  const handleSelect = (id: string) => {
+  // ── Select record (local, ya cargado en records[]) ─────────────────────
+  const handleSelectId = (id: string) => {
     setSelectedId(id)
     setEditing(false)
     setIsCreatingNew(false)
@@ -172,26 +212,25 @@ export default function PanelPrincipal() {
 
   const handleNew = () => {
     if (editing) return
-    const newId = String(Date.now())
-    const currentBase = selected ?? records[0] ?? MOCK_RECORDS[0]
+    const newId = `nuevo-${Date.now()}`
     setPreviousSelectedId(selectedId)
     const blank: JubilacionRecord = {
       id: newId,
-      cuil: currentBase.cuil,
-      dni: currentBase.dni,
-      apellidoNombres: currentBase.apellidoNombres,
-      telefono: currentBase.telefono,
-      correo: currentBase.correo,
-      programa: currentBase.programa,
-      secretaria: currentBase.secretaria,
-      cargo: currentBase.cargo,
-      antiguedadRecibo: currentBase.antiguedadRecibo,
-      antiguedadLicencias: currentBase.antiguedadLicencias,
-      fechaNacimiento: currentBase.fechaNacimiento,
-      edadActual: currentBase.edadActual,
-      fechaEstimadaJubilacionOrdinaria: currentBase.fechaEstimadaJubilacionOrdinaria,
+      cuil: '',
+      dni: '',
+      apellidoNombres: '',
+      telefono: '',
+      correo: '',
+      programa: '',
+      secretaria: '',
+      cargo: '',
+      antiguedadRecibo: '',
+      antiguedadLicencias: '',
+      fechaNacimiento: '',
+      edadActual: '',
+      fechaEstimadaJubilacionOrdinaria: '',
       estadoActivo: true,
-      trazabilidad: currentBase.trazabilidad ? [...currentBase.trazabilidad] : [],
+      trazabilidad: [],
       beneficio: '1', nroTramite: '',
       fBaja: '', nroExpMunRenuncia: '', jNroExpCaja: '', nroResRenCaja: '',
       nroExpCajDeneg: '', fInicExpMunPav: '', nroExpedienteMun: '',
@@ -244,31 +283,92 @@ export default function PanelPrincipal() {
     }
   }
 
-  const handleConfirmRegistration = () => {
-    setShowConfirmPopup(false)
-    setEditing(false)
-    setIsCreatingNew(false)
-    setInitialSnapshot(null)
-    setShowSuccessPopup(true)
+  const handleConfirmRegistration = async () => {
+    if (!selected) return
+    setSavingRecord(true)
+    setGlobalError(null)
+    try {
+      const result = await createAgente(selected)
+      if (result.ok && result.id) {
+        // Actualizar el id temporal por el real de DB
+        setRecords((prev) =>
+          prev.map((r) => (r.id === selected.id ? (result.record ?? { ...r, id: result.id! }) : r))
+        )
+        setSelectedId(result.id)
+        setShowConfirmPopup(false)
+        setEditing(false)
+        setIsCreatingNew(false)
+        setInitialSnapshot(null)
+        setShowSuccessPopup(true)
+      } else {
+        setGlobalError(result.error ?? 'Error al guardar el agente.')
+        setShowConfirmPopup(false)
+      }
+    } catch (err) {
+      setGlobalError('Error inesperado al guardar. Intente nuevamente.')
+      setShowConfirmPopup(false)
+    } finally {
+      setSavingRecord(false)
+    }
   }
 
-  const handleConfirmEdit = () => {
-    setShowEditConfirmPopup(false)
-    setEditing(false)
-    setIsCreatingNew(false)
-    setInitialSnapshot(null)
-    setShowEditSuccessPopup(true)
+  const handleConfirmEdit = async () => {
+    if (!selected) return
+    setSavingRecord(true)
+    setGlobalError(null)
+    try {
+      // Si el registro es un agente sin JUBILA (id con prefijo 'agente-'), crear en vez de actualizar
+      const isAgenteOnly = selected.id.startsWith('agente-')
+
+      let ok = false
+      let errorMsg: string | undefined
+      let createdId: string | undefined
+
+      if (isAgenteOnly) {
+        const result = await createJubila(selected)
+        ok = result.ok
+        errorMsg = result.error
+        createdId = result.id
+      } else {
+        const result = await updateJubila(selected.id, selected)
+        ok = result.ok
+        errorMsg = result.error
+      }
+
+      if (ok) {
+        // Si era agente sin JUBILA, actualizar el id temporal al id real de JUBILA
+        if (createdId) {
+          setRecords((prev) =>
+            prev.map((r) => (r.id === selected.id ? { ...r, id: createdId as string } : r))
+          )
+          setSelectedId(createdId)
+        }
+        setShowEditConfirmPopup(false)
+        setEditing(false)
+        setIsCreatingNew(false)
+        setInitialSnapshot(null)
+        setShowEditSuccessPopup(true)
+      } else {
+        setGlobalError(errorMsg ?? 'Error al guardar los cambios.')
+        setShowEditConfirmPopup(false)
+      }
+    } catch (err) {
+      setGlobalError('Error inesperado al guardar. Intente nuevamente.')
+      setShowEditConfirmPopup(false)
+    } finally {
+      setSavingRecord(false)
+    }
   }
 
+  const isCreatingAgente = isCreatingNew && editing
+  const isEditingJubila = !isCreatingNew && editing
+  const roAgente = !isCreatingAgente
+  const roJubila = !isEditingJubila
   const ro = !editing
 
   // ── Derived per selected record ──────────────────────────────────────────────
-  // Estado activo: inactivo si tiene Fecha Baja, Fecha Inicio Pasividad O si alguna renovación tiene fechas provisorias cargadas
-  const isActivo = selected
-    ? !selected.fBaja.trim() &&
-      !selected.fInicioPasividad.trim() &&
-      !selected.renovaciones.some((rv) => rv.fechaDesdeExp.trim() || rv.fechaHastaExp.trim())
-    : false
+  // Estado activo: viene directamente del campo ESTADO_ACTIVO de la tabla DATOS_PERSONALES_AGENTE_JUBILA
+  const isActivo = selected ? selected.estadoActivo : false
   // Otorgamiento y Renovaciones siempre visible cuando hay registro seleccionado
   const showRenovaciones = true
   const extraBtns: BtnExtra[] = selected ? (BOTONES_POR_BENEFICIO[selected.beneficio] ?? []) : []
@@ -394,16 +494,16 @@ export default function PanelPrincipal() {
           </div>
         )}
 
-        {/* ── Confirmation Popup ────────────────────────────────────────────── */}
+        {/* ── Confirmation Popup (Creación de Nuevo Agente) ────────────────── */}
         {showConfirmPopup && selected && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl flex flex-col max-h-[85vh] overflow-hidden">
               {/* Header */}
               <div className="flex items-center justify-between px-6 py-4 bg-[#1e3a8a] text-white">
                 <div>
-                  <h3 className="text-base font-bold">Confirmación de Registro de Jubilación</h3>
+                  <h3 className="text-base font-bold">Confirmación de Registro de Nuevo Agente</h3>
                   <p className="text-xs text-blue-200 mt-0.5">
-                    Se está por registrar una nueva jubilación con todos los datos que se agregaron:
+                    Se está por dar de alta un nuevo agente con los siguientes datos personales:
                   </p>
                 </div>
                 <button
@@ -414,116 +514,23 @@ export default function PanelPrincipal() {
                 </button>
               </div>
 
-              {/* Content Body: Formatted Summary by Blocks */}
+              {/* Content Body: Solo Datos Personales */}
               <div className="overflow-y-auto p-6 space-y-4 text-xs">
-                
-                {/* 1. DATOS PERSONALES */}
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                   <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1 flex items-center gap-1.5">
-                    <UserCircle className="w-4 h-4" /> DATOS PERSONALES (PRE-CARGADOS)
+                    <UserCircle className="w-4 h-4" /> DATOS PERSONALES DEL AGENTE
                   </h4>
                   <ul className="pl-4 space-y-1.5 text-slate-700 font-mono">
-                    <li><span className="font-semibold text-slate-900">Apellido y Nombres:</span> {selected.apellidoNombres || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">DNI:</span> {selected.dni || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Estado:</span> <span className="text-emerald-700 font-bold">ACTIVO (Predeterminado)</span></li>
                     <li><span className="font-semibold text-slate-900">CUIL:</span> {selected.cuil || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Programa:</span> {selected.programa || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Secretaría:</span> {selected.secretaria || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Cargo:</span> {selected.cargo || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Antigüedad Recibo:</span> {selected.antiguedadRecibo || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Antigüedad Licencias:</span> {selected.antiguedadLicencias || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Fecha Nacimiento:</span> {selected.fechaNacimiento || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">DNI (automático):</span> {selected.dni || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Apellido y Nombres:</span> {selected.apellidoNombres || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Teléfono:</span> {selected.telefono || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Correo Electrónico:</span> {selected.correo || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Fecha de Nacimiento:</span> {selected.fechaNacimiento || '—'}</li>
                     <li><span className="font-semibold text-slate-900">Edad Actual:</span> {selected.edadActual || '—'}</li>
                   </ul>
                 </div>
-
-                {/* 2. INFORMACIÓN LABORAL */}
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                  <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1 flex items-center gap-1.5">
-                    <FileText className="w-4 h-4" /> INFORMACIÓN LABORAL
-                  </h4>
-                  <ul className="pl-4 space-y-1.5 text-slate-700 font-mono">
-                    <li>
-                      <span className="font-semibold text-slate-900">Beneficio:</span>{' '}
-                      {BENEFICIO_OPTIONS.find((b) => b.value === selected.beneficio)?.label ?? '—'}
-                    </li>
-                    <li><span className="font-semibold text-slate-900">Número de Trámite:</span> {selected.nroTramite || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Fecha Baja:</span> {selected.fBaja || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Nº Exp. Mun. Renuncia:</span> {selected.nroExpMunRenuncia || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">J. Nº Exp. Caja:</span> {selected.jNroExpCaja || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Nº Res. Caja:</span> {selected.nroResRenCaja || '—'}</li>
-                    {selected.nroExpCajDeneg && (
-                      <li><span className="font-semibold text-slate-900">Nº Exp. Caj. Deneg.:</span> {selected.nroExpCajDeneg}</li>
-                    )}
-                  </ul>
-                </div>
-
-                {/* 3. OTORGAMIENTO Y RENOVACION PROVISORIAS */}
-                {selected.renovaciones.some((rv) => rv.nroResRenov || rv.nroExpMun || rv.fechaDesdeExp || rv.fechaHastaExp) && (
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1">
-                      OTORGAMIENTO Y RENOVACIÓN PROVISORIAS
-                    </h4>
-                    <ul className="pl-4 space-y-2 text-slate-700 font-mono">
-                      {selected.renovaciones.map((rv, idx) => (
-                        (rv.nroResRenov || rv.nroExpMun || rv.fechaDesdeExp || rv.fechaHastaExp || rv.nroDcto) ? (
-                          <li key={idx} className="border-l-2 border-[#1e3a8a] pl-2.5 py-0.5">
-                            <span className="font-semibold text-slate-900">Fila #{idx + 1}:</span>
-                            {rv.nroResRenov && <div>&nbsp;&nbsp;• Pase a Repartición: {rv.nroResRenov}</div>}
-                            {rv.nroExpMun && <div>&nbsp;&nbsp;• N.º Expte. Municipal: {rv.nroExpMun}</div>}
-                            {rv.fechaDesdeExp && <div>&nbsp;&nbsp;• Fecha Desde: {rv.fechaDesdeExp}</div>}
-                            {rv.fechaHastaExp && <div>&nbsp;&nbsp;• Fecha Hasta: {rv.fechaHastaExp}</div>}
-                            {rv.nroDcto && <div>&nbsp;&nbsp;• N.º Decreto/Resolución: {rv.nroDcto}</div>}
-                          </li>
-                        ) : null
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* 4. PASIVIDAD */}
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                  <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1">
-                    PASIVIDAD
-                  </h4>
-                  <ul className="pl-4 space-y-1.5 text-slate-700 font-mono">
-                    <li><span className="font-semibold text-slate-900">Fecha de Solicitud:</span> {selected.fSolicitud || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Fecha Est. Jub. Ordinaria:</span> {selected.fEstimadaJOrd || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Número Expediente Pasividad:</span> {selected.nroExpPasividad || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Fecha Firma Convenio:</span> {selected.fFirmaConvenio || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Fecha Inicio Pasividad:</span> {selected.fInicioPasividad || '—'}</li>
-                    {selected.observacionPasividad && (
-                      <li><span className="font-semibold text-slate-900">Observaciones Pasividad:</span> {selected.observacionPasividad}</li>
-                    )}
-                  </ul>
-                </div>
-
-                {/* 5. NOTIFICACIONES Y SUSPENSIONES */}
-                {(selected.notificacionArt43 || selected.nExpArt43SuspPago) && (
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1">
-                      NOTIFICACIONES Y SUSPENSIONES
-                    </h4>
-                    <ul className="pl-4 space-y-1.5 text-slate-700 font-mono">
-                      {selected.notificacionArt43 && (
-                        <li><span className="font-semibold text-slate-900">Notificación Art. 43:</span> {selected.notificacionArt43}</li>
-                      )}
-                      {selected.nExpArt43SuspPago && (
-                        <li><span className="font-semibold text-slate-900">N. Exp. Art. 43 Susp. Pago:</span> {selected.nExpArt43SuspPago}</li>
-                      )}
-                    </ul>
-                  </div>
-                )}
-
-                {/* 6. OBSERVACIONES */}
-                {selected.observacion && (
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <h4 className="font-bold text-[#1e3a8a] text-xs uppercase tracking-wider mb-2.5 border-b border-slate-200 pb-1">
-                      OBSERVACIONES
-                    </h4>
-                    <p className="pl-4 text-slate-700 font-mono whitespace-pre-wrap">{selected.observacion}</p>
-                  </div>
-                )}
-
               </div>
 
               {/* Footer Buttons */}
@@ -539,9 +546,32 @@ export default function PanelPrincipal() {
                   className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition flex items-center gap-2 shadow-sm"
                 >
                   <Save className="w-4 h-4" />
-                  Aceptar
+                  Aceptar y Guardar
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Registration Success Popup (Nuevo Agente) ────────────────────── */}
+        {showSuccessPopup && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 p-7 max-w-sm w-full mx-4 flex flex-col items-center gap-4 text-center">
+              <div className="flex items-center justify-center w-14 h-14 rounded-full bg-emerald-100 border border-emerald-200">
+                <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-1">¡Agente Registrado con Éxito!</h3>
+                <p className="text-sm text-slate-600">
+                  Se registró correctamente el nuevo agente en la base de datos con estado Activo.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSuccessPopup(false)}
+                className="w-full px-5 py-2.5 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-sm font-semibold transition shadow"
+              >
+                Aceptar
+              </button>
             </div>
           </div>
         )}
@@ -648,7 +678,38 @@ export default function PanelPrincipal() {
         <div className="p-6">
           <h1 className="text-xl font-bold text-[#1e3a8a] mb-5">Panel Principal</h1>
 
-          {/* ── Search bar ───────────────────────────────────────────────────── */}
+          {/* ── Error banner ────────────────────────────────────────── */}
+          {globalError && (
+            <div className="flex items-center gap-3 mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{globalError}</span>
+              <button
+                onClick={() => setGlobalError(null)}
+                className="ml-auto text-red-400 hover:text-red-600 transition"
+                aria-label="Cerrar error"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* ── Loading overlay (carga de registro individual) ──────────── */}
+          {loadingRecord && (
+            <div className="flex items-center gap-2 mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+              <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+              <span>Cargando registro...</span>
+            </div>
+          )}
+
+          {/* ── Saving overlay ────────────────────────────────────────── */}
+          {savingRecord && (
+            <div className="flex items-center gap-2 mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">
+              <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+              <span>Guardando en la base de datos...</span>
+            </div>
+          )}
+
+          {/* ── Search bar ─────────────────────────────────────────── */}
           <div className="flex items-center gap-2 mb-6">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -665,10 +726,11 @@ export default function PanelPrincipal() {
             </div>
             <button
               onClick={handleSearchAndLoad}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-sm font-semibold transition"
+              disabled={loadingSearch}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition"
             >
-              <Search className="w-4 h-4" />
-              Buscar
+              {loadingSearch ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              {loadingSearch ? 'Buscando...' : 'Buscar'}
             </button>
             <button
               onClick={handleNew}
@@ -680,7 +742,7 @@ export default function PanelPrincipal() {
               }`}
             >
               <PlusCircle className="w-4 h-4" />
-              Agregar Nuevo
+              Agregar Nuevo Agente
             </button>
           </div>
 
@@ -695,18 +757,20 @@ export default function PanelPrincipal() {
                   <h2 className="text-base font-bold text-slate-800">
                     DATOS:{' '}
                     <span className="text-[#1e3a8a]">
-                      {selected.apellidoNombres || 'Nuevo Registro'} &nbsp; {selected.dni}
+                      {selected.apellidoNombres || (isCreatingNew ? 'Nuevo Agente' : 'Nuevo Registro')} &nbsp; {selected.dni}
                     </span>
                   </h2>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowTrazabilidad(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
-                  >
-                    <GitBranch className="w-4 h-4" />
-                    <span>Trazabilidad</span>
-                  </button>
+                  {!isCreatingNew && (
+                    <button
+                      onClick={() => setShowTrazabilidad(true)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
+                    >
+                      <GitBranch className="w-4 h-4" />
+                      <span>Trazabilidad</span>
+                    </button>
+                  )}
                   {editing && (
                     <button
                       onClick={handleCancelEdit}
@@ -725,7 +789,7 @@ export default function PanelPrincipal() {
                     }`}
                   >
                     {editing ? (
-                      <><Save className="w-4 h-4" /><span>Guardar Registro</span></>
+                      <><Save className="w-4 h-4" /><span>{isCreatingNew ? 'Guardar Agente' : 'Guardar Registro'}</span></>
                     ) : (
                       <><Pencil className="w-4 h-4" /><span>Editar</span></>
                     )}
@@ -744,34 +808,36 @@ export default function PanelPrincipal() {
                   <FormField
                     label="CUIL"
                     value={selected.cuil}
-                    onChange={(v) => update('cuil', v)}
+                    onChange={updateCuil}
                     placeholder="20-00000000-0"
-                    readOnly={true}
+                    mask="cuil"
+                    readOnly={roAgente}
                   />
-                  {/* 2. DNI */}
+                  {/* 2. DNI (Auto-rellenado según CUIL) */}
                   <FormField
                     label="DNI"
                     value={selected.dni}
-                    onChange={(v) => update('dni', v)}
                     placeholder="Número de DNI"
                     readOnly={true}
                   />
-                  {/* 3. Apellido y Nombres */}
+                  {/* 3. Apellido y Nombres (Solo letras) */}
                   <FormField
                     label="Apellido y Nombres"
                     value={selected.apellidoNombres}
                     onChange={(v) => update('apellidoNombres', v)}
                     placeholder="Apellido y Nombres"
                     className="col-span-2"
-                    readOnly={true}
+                    mask="letters"
+                    readOnly={roAgente}
                   />
-                  {/* 4. Teléfono */}
+                  {/* 4. Teléfono (Solo números) */}
                   <FormField
                     label="Teléfono"
                     value={selected.telefono}
                     onChange={(v) => update('telefono', v)}
                     placeholder="Número de teléfono"
-                    readOnly={true}
+                    mask="digits"
+                    readOnly={roAgente}
                   />
                   {/* 5. Correo Electrónico */}
                   <FormField
@@ -780,7 +846,7 @@ export default function PanelPrincipal() {
                     onChange={(v) => update('correo', v)}
                     placeholder="correo@ejemplo.com"
                     className="col-span-2"
-                    readOnly={true}
+                    readOnly={roAgente}
                   />
                   {/* 6. Programa */}
                   <FormField
@@ -826,9 +892,26 @@ export default function PanelPrincipal() {
                   <FormField
                     label="Fecha de Nacimiento"
                     value={selected.fechaNacimiento}
-                    onChange={(v) => update('fechaNacimiento', v)}
+                    onChange={(v) => {
+                      update('fechaNacimiento', v)
+                      if (v.length === 10) {
+                        const parts = v.split('/')
+                        if (parts.length === 3) {
+                          const [dd, mm, yyyy] = parts
+                          const d = new Date(`${yyyy}-${mm}-${dd}`)
+                          if (!isNaN(d.getTime())) {
+                            const hoy = new Date()
+                            let edad = hoy.getFullYear() - d.getFullYear()
+                            const m = hoy.getMonth() - d.getMonth()
+                            if (m < 0 || (m === 0 && hoy.getDate() < d.getDate())) edad--
+                            update('edadActual', String(edad))
+                          }
+                        }
+                      }
+                    }}
                     placeholder="dd/mm/aaaa"
-                    readOnly={true}
+                    mask="date"
+                    readOnly={roAgente}
                   />
                   {/* 12. Edad Actual */}
                   <FormField
@@ -859,7 +942,7 @@ export default function PanelPrincipal() {
                     value={selected.beneficio}
                     onChange={(v) => update('beneficio', v)}
                     options={BENEFICIO_OPTIONS}
-                    disabled={ro}
+                    disabled={roJubila}
                     className="col-span-2"
                   />
                   <FormField
@@ -867,35 +950,35 @@ export default function PanelPrincipal() {
                     value={selected.nroTramite}
                     onChange={(v) => update('nroTramite', v)}
                     placeholder="000.000/00"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   <FormField
                     label="Fecha Baja"
                     value={selected.fBaja}
                     onChange={(v) => update('fBaja', v)}
                     placeholder="dd/mm/aaaa"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   <FormField
                     label="Nº Exp. Mun. Renuncia"
                     value={selected.nroExpMunRenuncia}
                     onChange={(v) => update('nroExpMunRenuncia', v)}
                     placeholder="000.000/00"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   <FormField
                     label="J. Nº Exp. Caja"
                     value={selected.jNroExpCaja}
                     onChange={(v) => update('jNroExpCaja', v)}
                     placeholder="000.000/00"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   <FormField
                     label="Nº Res. Caja"
                     value={selected.nroResRenCaja}
                     onChange={(v) => update('nroResRenCaja', v)}
                     placeholder="000.000/00"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   {/* Nº Exp. Caj. Deneg. al final */}
                   <FormField
@@ -903,7 +986,7 @@ export default function PanelPrincipal() {
                     value={selected.nroExpCajDeneg}
                     onChange={(v) => update('nroExpCajDeneg', v)}
                     placeholder="000.000/00"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                 </div>
 
@@ -975,7 +1058,7 @@ export default function PanelPrincipal() {
                                     }
                                     updateRenovacion(i, field, val)
                                   }}
-                                  readOnly={ro}
+                                  readOnly={roJubila}
                                   placeholder={
                                     field === 'fechaDesdeExp' || field === 'fechaHastaExp'
                                       ? 'dd/mm/aaaa'
@@ -983,8 +1066,9 @@ export default function PanelPrincipal() {
                                       ? '000.000/00'
                                       : '—'
                                   }
+                                  autoComplete="off"
                                   className={`w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-200 focus:border-[#1e3a8a] transition min-w-[90px] ${
-                                    ro ? 'bg-slate-50 text-slate-500 cursor-default' : ''
+                                    roJubila ? 'bg-slate-50 text-slate-500 cursor-default' : ''
                                   }`}
                                 />
                               </td>
@@ -1005,35 +1089,35 @@ export default function PanelPrincipal() {
                     value={selected.fSolicitud}
                     onChange={(v) => update('fSolicitud', v)}
                     placeholder="dd/mm/aaaa"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   <FormField
                     label="Fecha Estimada Jubilación Ordinaria"
                     value={selected.fEstimadaJOrd}
                     onChange={(v) => update('fEstimadaJOrd', v)}
                     placeholder="dd/mm/aaaa"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   <FormField
                     label="Número Expediente Pasividad"
                     value={selected.nroExpPasividad}
                     onChange={(v) => update('nroExpPasividad', v)}
                     placeholder="000.000/00"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   <FormField
                     label="Fecha Firma Convenio"
                     value={selected.fFirmaConvenio}
                     onChange={(v) => update('fFirmaConvenio', v)}
                     placeholder="dd/mm/aaaa"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   <FormField
                     label="Fecha Inicio Pasividad"
                     value={selected.fInicioPasividad}
                     onChange={(v) => update('fInicioPasividad', v)}
                     placeholder="dd/mm/aaaa"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -1043,11 +1127,11 @@ export default function PanelPrincipal() {
                   <textarea
                     value={selected.observacionPasividad}
                     onChange={(e) => update('observacionPasividad', e.target.value)}
-                    readOnly={ro}
+                    readOnly={roJubila}
                     rows={3}
                     placeholder="Observaciones de pasividad..."
                     className={`rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a] transition resize-none leading-relaxed ${
-                      ro ? 'bg-slate-50 text-slate-500 cursor-default' : ''
+                      roJubila ? 'bg-slate-50 text-slate-500 cursor-default' : ''
                     }`}
                   />
                 </div>
@@ -1061,14 +1145,14 @@ export default function PanelPrincipal() {
                     value={selected.notificacionArt43}
                     onChange={(v) => update('notificacionArt43', v)}
                     placeholder="dd/mm/aaaa"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                   <FormField
                     label="N. Exp. Art. 43 Susp. Pago"
                     value={selected.nExpArt43SuspPago}
                     onChange={(v) => update('nExpArt43SuspPago', v)}
                     placeholder="000.000/00"
-                    readOnly={ro}
+                    readOnly={roJubila}
                   />
                 </div>
               </SectionCard>
@@ -1082,11 +1166,11 @@ export default function PanelPrincipal() {
                   <textarea
                     value={selected.observacion}
                     onChange={(e) => update('observacion', e.target.value)}
-                    readOnly={ro}
+                    readOnly={roJubila}
                     rows={5}
                     placeholder="Ingrese observaciones del sistema..."
                     className={`rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a] transition resize-none leading-relaxed font-mono ${
-                      ro ? 'bg-slate-50 text-slate-500 cursor-default' : ''
+                      roJubila ? 'bg-slate-50 text-slate-500 cursor-default' : ''
                     }`}
                   />
                 </div>

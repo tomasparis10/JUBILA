@@ -11,11 +11,13 @@ type NavSection = 'inicio' | 'operaciones' | 'informes'
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false)
   const [username, setUsername] = useState('')
+  const [userId, setUserId] = useState<number>(1)
   const [activeSection, setActiveSection] = useState<NavSection>('inicio')
   const [expandedOp, setExpandedOp] = useState(false)
 
-  const handleLogin = (name: string) => {
+  const handleLogin = (name: string, id: number) => {
     setUsername(name)
+    setUserId(id)
     setLoggedIn(true)
   }
 
