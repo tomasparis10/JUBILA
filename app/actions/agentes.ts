@@ -3,6 +3,12 @@
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import type { JubilacionRecord, RenovProvisoria, TrazabilidadEntry } from '@/lib/jubilaciones-data'
+import {
+  calcAntiguedadRecibo,
+  calcAntiguedadLicencias,
+  calcFechaJubilacion,
+  type FaseCarrera,
+} from '@/utils/calculosPrevisionales'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -58,7 +64,12 @@ async function fetchJubilaById(id: number) {
     where: { ID_JUBILA: id },
     include: {
       DATOS_PERSONALES_AGENTE_JUBILA: {
-        include: { REGIMEN_JUBILATORIO: true },
+        include: {
+          REGIMEN_JUBILATORIO: true,
+          CARRERA_ADMINISTRATIVA: {
+            orderBy: { FECHA_ALTA: 'asc' },
+          },
+        },
       },
       HISTORIAL_BENEFICIO: {
         include: { BENEFICIO: true },
@@ -74,6 +85,23 @@ async function fetchJubilaById(id: number) {
 function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecord {
   const agente = j.DATOS_PERSONALES_AGENTE_JUBILA
   const regimen = agente.REGIMEN_JUBILATORIO
+
+  // ── Cálculos dinámicos de antigüedad desde CARRERA_ADMINISTRATIVA ──────────
+  const fases: FaseCarrera[] = (agente.CARRERA_ADMINISTRATIVA ?? []).map((f) => ({
+    FECHA_ALTA: f.FECHA_ALTA,
+    FECHA_BAJA: f.FECHA_BAJA,
+  }))
+  const antiguedadRecibo = calcAntiguedadRecibo(fases)
+  const antiguedadLicencias = calcAntiguedadLicencias(fases)
+
+  // ── Fecha estimada de jubilación dinámica ─────────────────────────────────
+  const fechaJubilacionCalc = calcFechaJubilacion(
+    agente.FECHA_NACIMIENTO,
+    regimen?.EDAD_REQUERIDA ?? null,
+  )
+  const fechaEstimadaJubilacionOrdinaria = fechaJubilacionCalc
+    ? dbDateToStr(fechaJubilacionCalc)
+    : ''
 
   // Trazabilidad: cada entrada del historial de beneficios
   const trazabilidad: TrazabilidadEntry[] = j.HISTORIAL_BENEFICIO.map((h) => ({
@@ -114,11 +142,11 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
     programa: agente.PROGRAMA ?? '',
     secretaria: agente.SECRETARIA ?? '',
     cargo: agente.CARGO ?? '',
-    antiguedadRecibo: calcAntiguedad(agente.ANTIGUEDAD_RECIBO),
-    antiguedadLicencias: calcAntiguedad(agente.ANTIGUEDAD_LICENCIAS),
+    antiguedadRecibo,
+    antiguedadLicencias,
     fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
     edadActual: calcEdad(agente.FECHA_NACIMIENTO),
-    fechaEstimadaJubilacionOrdinaria: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
+    fechaEstimadaJubilacionOrdinaria,
     beneficio: beneficioActual ? String(beneficioActual.ID_BENEFICIO) : '',
     nroTramite: j.INFORMACION_LABORAL_NUMERO_TRAMITE ?? '',
     fBaja: dbDateToStr(j.INFORMACION_LABORAL_FECHA_BAJA),
@@ -156,6 +184,25 @@ type AgenteBase = NonNullable<Awaited<ReturnType<typeof prisma.dATOS_PERSONALES_
 
 function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
   const renovacionVacia = { nroResRenov: '', nroExpMun: '', fechaDesdeExp: '', fechaHastaExp: '', jNroExpCaja: '', nroDcto: '' }
+
+  // Cálculos dinámicos desde CARRERA_ADMINISTRATIVA
+  const fases: FaseCarrera[] = ((agente as any).CARRERA_ADMINISTRATIVA ?? []).map((f: any) => ({
+    FECHA_ALTA: f.FECHA_ALTA,
+    FECHA_BAJA: f.FECHA_BAJA,
+  }))
+  const antiguedadRecibo = calcAntiguedadRecibo(fases)
+  const antiguedadLicencias = calcAntiguedadLicencias(fases)
+
+  // Fecha estimada de jubilación
+  const regimen = (agente as any).REGIMEN_JUBILATORIO ?? null
+  const fechaJubilacionCalc = calcFechaJubilacion(
+    agente.FECHA_NACIMIENTO,
+    regimen?.EDAD_REQUERIDA ?? null,
+  )
+  const fechaEstimadaJubilacionOrdinaria = fechaJubilacionCalc
+    ? dbDateToStr(fechaJubilacionCalc)
+    : ''
+
   return {
     id: `agente-${agente.ID_DATOS_PERSONALES_AGENTE_JUBILA}`,
     cuil: agente.CUIL ?? '',
@@ -168,11 +215,11 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
     programa: agente.PROGRAMA ?? '',
     secretaria: agente.SECRETARIA ?? '',
     cargo: agente.CARGO ?? '',
-    antiguedadRecibo: calcAntiguedad(agente.ANTIGUEDAD_RECIBO),
-    antiguedadLicencias: calcAntiguedad(agente.ANTIGUEDAD_LICENCIAS),
+    antiguedadRecibo,
+    antiguedadLicencias,
     fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
     edadActual: calcEdad(agente.FECHA_NACIMIENTO),
-    fechaEstimadaJubilacionOrdinaria: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
+    fechaEstimadaJubilacionOrdinaria,
     beneficio: '1',
     nroTramite: '', fBaja: '', nroExpMunRenuncia: '',
     jNroExpCaja: '', nroResRenCaja: '', nroExpCajDeneg: '',
@@ -222,6 +269,9 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
           },
         },
         REGIMEN_JUBILATORIO: true,
+        CARRERA_ADMINISTRATIVA: {
+          orderBy: { FECHA_ALTA: 'asc' },
+        },
       },
       take: 50,
     })
@@ -262,7 +312,12 @@ export async function getLastRecord(): Promise<JubilacionRecord | null> {
       orderBy: { FECHA_INICIO_CREACION_JUBILA: 'desc' },
       include: {
         DATOS_PERSONALES_AGENTE_JUBILA: {
-          include: { REGIMEN_JUBILATORIO: true },
+          include: {
+            REGIMEN_JUBILATORIO: true,
+            CARRERA_ADMINISTRATIVA: {
+              orderBy: { FECHA_ALTA: 'asc' },
+            },
+          },
         },
         HISTORIAL_BENEFICIO: {
           include: { BENEFICIO: true },
@@ -315,7 +370,12 @@ export async function getJubilaList(take = 50): Promise<JubilacionRecord[]> {
       take,
       include: {
         DATOS_PERSONALES_AGENTE_JUBILA: {
-          include: { REGIMEN_JUBILATORIO: true },
+          include: {
+            REGIMEN_JUBILATORIO: true,
+            CARRERA_ADMINISTRATIVA: {
+              orderBy: { FECHA_ALTA: 'asc' },
+            },
+          },
         },
         HISTORIAL_BENEFICIO: {
           include: { BENEFICIO: true },

@@ -16,6 +16,7 @@ import {
 import { FormField, SelectField, SectionCard } from '@/components/form-field'
 import { formatExpediente, formatDate, formatCuil, extractDniFromCuil } from '@/lib/format-utils'
 import { searchAgentes, updateJubila, createJubila, createAgente, getLastRecord } from '@/app/actions/agentes'
+import { GestorArchivos } from '@/components/gestor-archivos'
 
 // Normalize a string: lowercase + remove diacritics
 function normalize(str: string): string {
@@ -124,6 +125,10 @@ export default function PanelPrincipal() {
   const [loadingRecord, setLoadingRecord] = useState(false)
   const [savingRecord, setSavingRecord]   = useState(false)
   const [globalError, setGlobalError]     = useState<string | null>(null)
+
+  // ── Modal Gestionar Archivos ─────────────────────────────────────────────
+  const [showArchivos, setShowArchivos]       = useState(false)
+  const [archivosMode, setArchivosMode]       = useState<'ver' | 'cargar'>('ver')
 
   const detailRef = useRef<HTMLDivElement>(null)
   const selected  = records.find((r) => r.id === selectedId) ?? null
@@ -462,6 +467,82 @@ export default function PanelPrincipal() {
               <div className="px-5 py-3 border-t border-slate-100 flex justify-end">
                 <button
                   onClick={() => setShowTrazabilidad(false)}
+                  className="px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-sm font-semibold transition"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal Gestionar Archivos ───────────────────────────────────────── */}
+        {showArchivos && selected && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-3xl flex flex-col max-h-[85vh] overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-[#1e3a8a] rounded-t-xl">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-white" />
+                  <h3 className="text-sm font-bold text-white">
+                    {archivosMode === 'cargar' ? 'Cargar PDF / Im\u00e1genes' : 'Ver PDF / Im\u00e1genes'}
+                  </h3>
+                  <span className="text-xs text-blue-200 font-mono ml-2">
+                    {selected.apellidoNombres} &mdash; DNI {selected.dni}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowArchivos(false)}
+                  className="text-white/70 hover:text-white transition p-1 rounded hover:bg-white/10"
+                  aria-label="Cerrar"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Tab switch */}
+              <div className="flex border-b border-slate-100 bg-slate-50">
+                <button
+                  onClick={() => setArchivosMode('ver')}
+                  className={`flex items-center gap-1.5 px-5 py-2.5 text-xs font-semibold transition border-b-2 ${
+                    archivosMode === 'ver'
+                      ? 'border-[#1e3a8a] text-[#1e3a8a] bg-white'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" /> Ver documentos
+                </button>
+                {!selected.id.startsWith('agente-') && !selected.id.startsWith('nuevo-') && (
+                  <button
+                    onClick={() => setArchivosMode('cargar')}
+                    className={`flex items-center gap-1.5 px-5 py-2.5 text-xs font-semibold transition border-b-2 ${
+                      archivosMode === 'cargar'
+                        ? 'border-[#1e3a8a] text-[#1e3a8a] bg-white'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <Upload className="w-3.5 h-3.5" /> Cargar archivos
+                  </button>
+                )}
+              </div>
+
+              {/* Body */}
+              <div className="overflow-y-auto p-5 flex-1">
+                <GestorArchivos
+                  jubilaId={
+                    // Solo pasar ID numerico real cuando el registro es un JUBILA (no agente sin jubila)
+                    !selected.id.startsWith('agente-') && !selected.id.startsWith('nuevo-')
+                      ? Number(selected.id)
+                      : null
+                  }
+                  disabled={archivosMode === 'ver' || selected.id.startsWith('agente-') || selected.id.startsWith('nuevo-')}
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
+                <button
+                  onClick={() => setShowArchivos(false)}
                   className="px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-sm font-semibold transition"
                 >
                   Cerrar
@@ -995,6 +1076,7 @@ export default function PanelPrincipal() {
                   {/* Siempre presentes */}
                   <button
                     type="button"
+                    onClick={() => { setArchivosMode('ver'); setShowArchivos(true) }}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
                   >
                     <FileText className="w-3.5 h-3.5" />
@@ -1002,6 +1084,7 @@ export default function PanelPrincipal() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => { setArchivosMode('cargar'); setShowArchivos(true) }}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
                   >
                     <Upload className="w-3.5 h-3.5" />
