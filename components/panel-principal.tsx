@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Search, UserCircle, Pencil, Save, FileText, Upload,
   Printer, Send, Archive, CheckSquare, PlusCircle, GitBranch, X, CheckCircle2,
-  Loader2, AlertCircle,
+  Loader2, AlertCircle, MessageSquare,
 } from 'lucide-react'
 import {
   BENEFICIO_OPTIONS,
@@ -128,7 +128,6 @@ export default function PanelPrincipal() {
 
   // ── Modal Gestionar Archivos ─────────────────────────────────────────────
   const [showArchivos, setShowArchivos]       = useState(false)
-  const [archivosMode, setArchivosMode]       = useState<'ver' | 'cargar'>('ver')
 
   const detailRef = useRef<HTMLDivElement>(null)
   const selected  = records.find((r) => r.id === selectedId) ?? null
@@ -328,24 +327,32 @@ export default function PanelPrincipal() {
       let ok = false
       let errorMsg: string | undefined
       let createdId: string | undefined
+      let updatedRecord: JubilacionRecord | undefined
 
       if (isAgenteOnly) {
         const result = await createJubila(selected)
         ok = result.ok
         errorMsg = result.error
         createdId = result.id
+        updatedRecord = result.record
       } else {
         const result = await updateJubila(selected.id, selected)
         ok = result.ok
         errorMsg = result.error
+        updatedRecord = result.record
       }
 
       if (ok) {
-        // Si era agente sin JUBILA, actualizar el id temporal al id real de JUBILA
-        if (createdId) {
-          setRecords((prev) =>
-            prev.map((r) => (r.id === selected.id ? { ...r, id: createdId as string } : r))
+        // Actualizar el estado local con el registro fresco de DB (incluyendo la trazabilidad actualizada)
+        const targetId = createdId ?? selected.id
+        setRecords((prev) =>
+          prev.map((r) =>
+            r.id === selected.id
+              ? (updatedRecord ?? { ...r, id: targetId })
+              : r
           )
+        )
+        if (createdId) {
           setSelectedId(createdId)
         }
         setShowEditConfirmPopup(false)
@@ -485,7 +492,7 @@ export default function PanelPrincipal() {
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-white" />
                   <h3 className="text-sm font-bold text-white">
-                    {archivosMode === 'cargar' ? 'Cargar PDF / Im\u00e1genes' : 'Ver PDF / Im\u00e1genes'}
+                    Cargar/Ver PDF/Imagen
                   </h3>
                   <span className="text-xs text-blue-200 font-mono ml-2">
                     {selected.apellidoNombres} &mdash; DNI {selected.dni}
@@ -500,32 +507,6 @@ export default function PanelPrincipal() {
                 </button>
               </div>
 
-              {/* Tab switch */}
-              <div className="flex border-b border-slate-100 bg-slate-50">
-                <button
-                  onClick={() => setArchivosMode('ver')}
-                  className={`flex items-center gap-1.5 px-5 py-2.5 text-xs font-semibold transition border-b-2 ${
-                    archivosMode === 'ver'
-                      ? 'border-[#1e3a8a] text-[#1e3a8a] bg-white'
-                      : 'border-transparent text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  <FileText className="w-3.5 h-3.5" /> Ver documentos
-                </button>
-                {!selected.id.startsWith('agente-') && !selected.id.startsWith('nuevo-') && (
-                  <button
-                    onClick={() => setArchivosMode('cargar')}
-                    className={`flex items-center gap-1.5 px-5 py-2.5 text-xs font-semibold transition border-b-2 ${
-                      archivosMode === 'cargar'
-                        ? 'border-[#1e3a8a] text-[#1e3a8a] bg-white'
-                        : 'border-transparent text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    <Upload className="w-3.5 h-3.5" /> Cargar archivos
-                  </button>
-                )}
-              </div>
-
               {/* Body */}
               <div className="overflow-y-auto p-5 flex-1">
                 <GestorArchivos
@@ -535,7 +516,7 @@ export default function PanelPrincipal() {
                       ? Number(selected.id)
                       : null
                   }
-                  disabled={archivosMode === 'ver' || selected.id.startsWith('agente-') || selected.id.startsWith('nuevo-')}
+                  disabled={selected.id.startsWith('agente-') || selected.id.startsWith('nuevo-')}
                 />
               </div>
 
@@ -543,7 +524,7 @@ export default function PanelPrincipal() {
               <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
                 <button
                   onClick={() => setShowArchivos(false)}
-                  className="px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-sm font-semibold transition"
+                  className="px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-xs font-semibold transition"
                 >
                   Cerrar
                 </button>
@@ -911,15 +892,39 @@ export default function PanelPrincipal() {
                     mask="letters"
                     readOnly={roAgente}
                   />
-                  {/* 4. Teléfono (Solo números) */}
-                  <FormField
-                    label="Teléfono"
-                    value={selected.telefono}
-                    onChange={(v) => update('telefono', v)}
-                    placeholder="Número de teléfono"
-                    mask="digits"
-                    readOnly={roAgente}
-                  />
+                  {/* 4. Teléfono (Solo números) + Botón WhatsApp */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">
+                      Teléfono
+                    </label>
+                    <div className="flex gap-1">
+                      <input
+                        type="text"
+                        value={selected.telefono}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/\D/g, '')
+                          update('telefono', raw)
+                        }}
+                        readOnly={ro}
+                        placeholder="Número de teléfono"
+                        autoComplete="off"
+                        className={`flex-1 min-w-0 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a] transition ${
+                          ro ? 'bg-slate-50 text-slate-500 cursor-default' : ''
+                        }`}
+                      />
+                      {selected.telefono && (
+                        <a
+                          href={`https://wa.me/549${selected.telefono.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Enviar WhatsApp a ${selected.telefono}`}
+                          className="flex items-center justify-center px-2.5 py-1.5 rounded-md bg-[#25D366] hover:bg-[#1da851] text-white transition flex-shrink-0 shadow-sm"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
                   {/* 5. Correo Electrónico */}
                   <FormField
                     label="Correo Electrónico"
@@ -1073,22 +1078,14 @@ export default function PanelPrincipal() {
 
                 {/* Botones dinámicos según beneficio */}
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-                  {/* Siempre presentes */}
+                  {/* Botón unificado Cargar/Ver PDF/Imagen */}
                   <button
                     type="button"
-                    onClick={() => { setArchivosMode('ver'); setShowArchivos(true) }}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    Ver PDF / Imágenes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setArchivosMode('cargar'); setShowArchivos(true) }}
+                    onClick={() => setShowArchivos(true)}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
                   >
                     <Upload className="w-3.5 h-3.5" />
-                    Cargar PDF / Imágenes
+                    Cargar/Ver PDF/Imagen
                   </button>
                   {/* Variables según beneficio */}
                   {extraBtns.map((btn) => (

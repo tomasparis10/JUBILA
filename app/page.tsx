@@ -5,6 +5,7 @@ import LoginPage from '@/components/login-page'
 import Sidebar from '@/components/sidebar'
 import TopBar from '@/components/top-bar'
 import PanelPrincipal from '@/components/panel-principal'
+import InformesAnaliticas from '@/components/informes-analiticas'
 
 type NavSection = 'inicio' | 'operaciones' | 'informes'
 
@@ -62,11 +63,8 @@ export default function App() {
         )}
 
         {activeSection === 'informes' && (
-          <main className="flex-1 overflow-y-auto p-6">
-            <h1 className="text-xl font-bold text-slate-800 mb-2">Informes</h1>
-            <p className="text-slate-500 text-sm">
-              Módulo de informes y reportes. Seleccione un informe para generar.
-            </p>
+          <main className="flex-1 overflow-y-auto">
+            <InformesAnaliticas />
           </main>
         )}
       </div>

@@ -73,7 +73,7 @@ async function fetchJubilaById(id: number) {
       },
       HISTORIAL_BENEFICIO: {
         include: { BENEFICIO: true },
-        orderBy: { FECHA_INICIO_BENEFICIO: 'asc' },
+        orderBy: [{ FECHA_INICIO_BENEFICIO: 'asc' }, { ID_HISTORIAL_BENEFICIO: 'asc' }],
       },
       OTORGAMIENTO_RENOVACION_PROVISORIAS: {
         orderBy: { ID_OTORGAMIENTO_RENOVACION_PROVISORIAS: 'asc' },
@@ -400,10 +400,11 @@ export async function updateJubila(
   id: string,
   data: Partial<JubilacionRecord>,
   usuarioId: number = 1,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; record?: JubilacionRecord }> {
   try {
+    const jubilaId = Number(id)
     await prisma.jUBILA.update({
-      where: { ID_JUBILA: Number(id) },
+      where: { ID_JUBILA: jubilaId },
       data: {
         INFORMACION_LABORAL_NUMERO_TRAMITE: data.nroTramite ?? undefined,
         INFORMACION_LABORAL_FECHA_BAJA: data.fBaja ? strToDate(data.fBaja) : undefined,
@@ -429,7 +430,7 @@ export async function updateJubila(
     if (data.renovaciones) {
       // Eliminar las existentes y recrear
       await prisma.oTORGAMIENTO_RENOVACION_PROVISORIAS.deleteMany({
-        where: { ID_JUBILA: Number(id) },
+        where: { ID_JUBILA: jubilaId },
       })
       const renovsConDatos = data.renovaciones.filter(
         (rv) => rv.nroResRenov || rv.nroExpMun || rv.fechaDesdeExp || rv.fechaHastaExp || rv.nroDcto
@@ -437,7 +438,7 @@ export async function updateJubila(
       if (renovsConDatos.length > 0) {
         await prisma.oTORGAMIENTO_RENOVACION_PROVISORIAS.createMany({
           data: renovsConDatos.map((rv) => ({
-            ID_JUBILA: Number(id),
+            ID_JUBILA: jubilaId,
             NUMERO_RESOLUCION_RENOVACION: rv.nroResRenov || null,
             NUMERO_EXPEDIENTE_MUNICIPAL: rv.nroExpMun || null,
             FECHA_DESDE_PROVISORIA: rv.fechaDesdeExp ? strToDate(rv.fechaDesdeExp) : null,
@@ -448,14 +449,23 @@ export async function updateJubila(
       }
     }
 
-    // Actualizar beneficio en historial si cambió
+    // Actualizar beneficio en historial si cambió o si no existía
     if (data.beneficio) {
       const beneficioId = Number(data.beneficio)
       const ultimoHistorial = await prisma.hISTORIAL_BENEFICIO.findFirst({
-        where: { ID_JUBILA: Number(id), FECHA_FIN_BENEFICIO: null },
-        orderBy: { FECHA_INICIO_BENEFICIO: 'desc' },
+        where: { ID_JUBILA: jubilaId, FECHA_FIN_BENEFICIO: null },
+        orderBy: [{ FECHA_INICIO_BENEFICIO: 'desc' }, { ID_HISTORIAL_BENEFICIO: 'desc' }],
       })
-      if (ultimoHistorial && ultimoHistorial.ID_BENEFICIO !== beneficioId) {
+      if (!ultimoHistorial) {
+        await prisma.hISTORIAL_BENEFICIO.create({
+          data: {
+            ID_JUBILA: jubilaId,
+            ID_BENEFICIO: beneficioId,
+            FECHA_INICIO_BENEFICIO: new Date(),
+            USUARIO_ULTIMA_MODIFICACION: usuarioId,
+          },
+        })
+      } else if (ultimoHistorial.ID_BENEFICIO !== beneficioId) {
         // Cierra el beneficio anterior
         await prisma.hISTORIAL_BENEFICIO.update({
           where: { ID_HISTORIAL_BENEFICIO: ultimoHistorial.ID_HISTORIAL_BENEFICIO },
@@ -464,7 +474,7 @@ export async function updateJubila(
         // Crea el nuevo beneficio
         await prisma.hISTORIAL_BENEFICIO.create({
           data: {
-            ID_JUBILA: Number(id),
+            ID_JUBILA: jubilaId,
             ID_BENEFICIO: beneficioId,
             FECHA_INICIO_BENEFICIO: new Date(),
             USUARIO_ULTIMA_MODIFICACION: usuarioId,
@@ -474,7 +484,9 @@ export async function updateJubila(
     }
 
     revalidatePath('/')
-    return { ok: true }
+    const fresh = await fetchJubilaById(jubilaId)
+    const record = fresh ? mapJubilaToRecord(fresh) : undefined
+    return { ok: true, record }
   } catch (error) {
     console.error('[updateJubila] Error:', error)
     return { ok: false, error: 'Error al guardar los cambios en la base de datos.' }
@@ -549,7 +561,7 @@ export async function createAgente(
 export async function createJubila(
   data: Partial<JubilacionRecord>,
   usuarioId: number = 1,
-): Promise<{ ok: boolean; id?: string; error?: string }> {
+): Promise<{ ok: boolean; id?: string; error?: string; record?: JubilacionRecord }> {
   try {
     if (!data.dni || !data.apellidoNombres) {
       return { ok: false, error: 'DNI y apellido/nombre son obligatorios.' }
@@ -641,7 +653,9 @@ export async function createJubila(
     }
 
     revalidatePath('/')
-    return { ok: true, id: String(jubila.ID_JUBILA) }
+    const fresh = await fetchJubilaById(jubila.ID_JUBILA)
+    const record = fresh ? mapJubilaToRecord(fresh) : undefined
+    return { ok: true, id: String(jubila.ID_JUBILA), record }
   } catch (error) {
     console.error('[createJubila] Error:', error)
     return { ok: false, error: 'Error al crear el registro en la base de datos.' }
