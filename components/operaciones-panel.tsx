@@ -3,9 +3,10 @@
 import { useState } from 'react'
 import {
   PlusCircle, RefreshCw, UserCheck, AlertCircle, CheckCircle2,
-  Loader2, Clock, Users, X, UserCircle, Save, Search,
+  Loader2, Clock, Users, X, UserCircle, Save, Search, ArrowRight,
+  FileText, Database,
 } from 'lucide-react'
-import { bulkSyncAgentes, createAgente } from '@/app/actions/agentes'
+import { createAgente } from '@/app/actions/agentes'
 import { FormField } from '@/components/form-field'
 import { formatCuil, extractDniFromCuil } from '@/lib/format-utils'
 import type { JubilacionRecord } from '@/lib/jubilaciones-data'
@@ -15,6 +16,33 @@ type OpMode = 'agregar-agente' | 'actualizacion-masiva'
 interface OperacionesPanelProps {
   activeOp: OpMode | null
   onChangeOp: (op: OpMode) => void
+}
+
+// ── Tipos del resultado de la API ─────────────────────────────────────────────
+interface DiffField { campo: string; anterior: string; nuevo: string }
+interface AgenteNuevo { dni: string; nombre: string; apellido: string; secretaria: string; programa: string; cargo: string; sexo: string; estadoActivo: boolean; cuil: string; telefono: string; correo: string; fechaNacimiento: string }
+interface AgenteActualizado { dni: string; nombre: string; diffs: DiffField[] }
+interface CarreraNueva { dni: string; fechaAlta: string; fechaBaja: string; causaBaja: string }
+interface CarreraActualizada { dni: string; fechaAlta: string; diffs: DiffField[] }
+
+interface BulkSyncResult {
+  ok: boolean
+  lastUpdated: string
+  datosPersonales: {
+    nuevos: AgenteNuevo[]
+    actualizados: AgenteActualizado[]
+    sinCambios: number
+    errores: number
+    errorDetails: string[]
+  }
+  carreraAdministrativa: {
+    nuevas: CarreraNueva[]
+    actualizadas: CarreraActualizada[]
+    sinCambios: number
+    errores: number
+    errorDetails: string[]
+  }
+  error?: string
 }
 
 // ── Formulario de Nuevo Agente (embebido) ────────────────────────────────────
@@ -215,10 +243,7 @@ function FormNuevoAgente() {
 // ── Panel Actualización Masiva ────────────────────────────────────────────────
 function ActualizacionMasiva() {
   const [running, setRunning] = useState(false)
-  const [result, setResult] = useState<{
-    added: number; skipped: number; errors: number;
-    lastUpdated: string; newAgents: { dni: string; nombre: string }[]
-  } | null>(null)
+  const [result, setResult] = useState<BulkSyncResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const handleSync = async () => {
@@ -226,24 +251,22 @@ function ActualizacionMasiva() {
     setError(null)
     setResult(null)
     try {
-      const res = await bulkSyncAgentes()
-      if (res.ok) {
-        setResult({
-          added: res.added,
-          skipped: res.skipped,
-          errors: res.errors,
-          lastUpdated: res.lastUpdated,
-          newAgents: res.newAgents,
-        })
+      const res = await fetch('/api/bulk-sync', { method: 'POST' })
+      const data: BulkSyncResult = await res.json()
+      if (data.ok) {
+        setResult(data)
       } else {
-        setError(res.error ?? 'Error durante la sincronización.')
+        setError(data.error ?? 'Error durante la actualización masiva.')
       }
     } catch {
-      setError('Error inesperado durante la sincronización.')
+      setError('Error inesperado al conectar con la API.')
     } finally {
       setRunning(false)
     }
   }
+
+  const dp = result?.datosPersonales
+  const ca = result?.carreraAdministrativa
 
   return (
     <div className="flex flex-col gap-5">
@@ -251,11 +274,11 @@ function ActualizacionMasiva() {
       <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg">
         <RefreshCw className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
         <div>
-          <p className="text-sm font-semibold text-amber-800">Actualización Masiva de Agentes</p>
+          <p className="text-sm font-semibold text-amber-800">Actualización Masiva desde Excel</p>
           <p className="text-xs text-slate-500 mt-0.5">
-            Busca en la tabla{' '}
-            <span className="font-mono font-semibold">CARRERA_ADMINISTRATIVA</span> todos los empleados
-            que no estén registrados en el sistema y los agrega con su carrera administrativa.
+            Lee <span className="font-mono font-semibold">DatosPersonales.xlsx</span> y{' '}
+            <span className="font-mono font-semibold">CarreraAdministrativa.xlsx</span> desde{' '}
+            <span className="font-mono">data/</span> y sincroniza la base de datos campo a campo.
           </p>
         </div>
       </div>
@@ -271,62 +294,189 @@ function ActualizacionMasiva() {
         </div>
       )}
 
-      {/* Result card */}
+      {/* Resultado */}
       {result && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-widest">
-              Resultado de la Sincronización
-            </h3>
-            <span className="ml-auto text-xs text-slate-400 flex items-center gap-1">
-              <Clock className="w-3 h-3" /> {result.lastUpdated}
-            </span>
+        <div className="flex flex-col gap-4">
+          {/* Timestamp */}
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <Clock className="w-3 h-3" /> Última actualización: {result.lastUpdated}
           </div>
-          <div className="p-4">
-            {/* Summary stats */}
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              <div className="flex flex-col items-center justify-center bg-emerald-50 border border-emerald-200 rounded-lg py-3 px-2">
-                <span className="text-2xl font-bold text-emerald-700">{result.added}</span>
-                <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mt-1">Agregados</span>
+
+          {/* ── Sección Datos Personales ── */}
+          {dp && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-2.5 bg-blue-50 border-b border-blue-200 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-blue-600" />
+                <h3 className="text-xs font-bold text-blue-700 uppercase tracking-widest flex-1">Datos Personales</h3>
               </div>
-              <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-lg py-3 px-2">
-                <span className="text-2xl font-bold text-slate-600">{result.skipped}</span>
-                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mt-1">Ya existían</span>
-              </div>
-              <div className="flex flex-col items-center justify-center bg-red-50 border border-red-200 rounded-lg py-3 px-2">
-                <span className="text-2xl font-bold text-red-600">{result.errors}</span>
-                <span className="text-[10px] font-semibold text-red-500 uppercase tracking-wider mt-1">Errores</span>
+              <div className="p-4 flex flex-col gap-4">
+                {/* Contadores */}
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="flex flex-col items-center justify-center bg-emerald-50 border border-emerald-200 rounded-lg py-2 px-1">
+                    <span className="text-xl font-bold text-emerald-700">{dp.nuevos.length}</span>
+                    <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mt-0.5">Nuevos</span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center bg-blue-50 border border-blue-200 rounded-lg py-2 px-1">
+                    <span className="text-xl font-bold text-blue-700">{dp.actualizados.length}</span>
+                    <span className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider mt-0.5">Actualizados</span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-lg py-2 px-1">
+                    <span className="text-xl font-bold text-slate-600">{dp.sinCambios}</span>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mt-0.5">Sin cambios</span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center bg-red-50 border border-red-200 rounded-lg py-2 px-1">
+                    <span className="text-xl font-bold text-red-600">{dp.errores}</span>
+                    <span className="text-[10px] font-semibold text-red-500 uppercase tracking-wider mt-0.5">Errores</span>
+                  </div>
+                </div>
+
+                {/* Nuevos */}
+                {dp.nuevos.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5" /> Agentes nuevos ({dp.nuevos.length})
+                    </p>
+                    <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                      {dp.nuevos.map((a) => (
+                        <div key={a.dni} className="px-3 py-2 hover:bg-slate-50 transition">
+                          <div className="flex items-center gap-2">
+                            <UserCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                            <span className="text-xs font-mono text-slate-600">{a.dni}</span>
+                            <span className="text-xs text-slate-400">—</span>
+                            <span className="text-xs font-semibold text-slate-700">{a.apellido} {a.nombre}</span>
+                            {a.cargo && <span className="text-xs text-slate-400 ml-auto">{a.cargo}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Actualizados */}
+                {dp.actualizados.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5" /> Actualizados ({dp.actualizados.length})
+                    </p>
+                    <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                      {dp.actualizados.map((a) => (
+                        <div key={a.dni} className="px-3 py-2 hover:bg-slate-50 transition">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-mono text-slate-600">{a.dni}</span>
+                            <span className="text-xs text-slate-400">—</span>
+                            <span className="text-xs font-semibold text-slate-700">{a.nombre}</span>
+                          </div>
+                          {a.diffs.map((d) => (
+                            <div key={d.campo} className="flex items-center gap-1.5 pl-4 mt-0.5">
+                              <span className="text-[10px] font-mono text-slate-400 w-32 shrink-0">{d.campo}</span>
+                              <span className="text-[10px] text-red-500 line-through">{d.anterior || '—'}</span>
+                              <ArrowRight className="w-3 h-3 text-slate-300 shrink-0" />
+                              <span className="text-[10px] text-emerald-600 font-semibold">{d.nuevo || '—'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Errores */}
+                {dp.errorDetails.length > 0 && (
+                  <div className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg p-2 max-h-24 overflow-y-auto">
+                    {dp.errorDetails.map((e, i) => <p key={i}>{e}</p>)}
+                  </div>
+                )}
               </div>
             </div>
+          )}
 
-            {/* New agents list */}
-            {result.newAgents.length > 0 ? (
-              <div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Users className="w-3.5 h-3.5" /> Agentes añadidos ({result.newAgents.length})
-                </p>
-                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
-                  {result.newAgents.map((a) => (
-                    <div key={a.dni} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 transition">
-                      <UserCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
-                      <span className="text-xs font-mono text-slate-600">{a.dni}</span>
-                      <span className="text-xs text-slate-400">—</span>
-                      <span className="text-xs text-slate-700">{a.nombre}</span>
-                    </div>
-                  ))}
-                </div>
+          {/* ── Sección Carrera Administrativa ── */}
+          {ca && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-2.5 bg-violet-50 border-b border-violet-200 flex items-center gap-2">
+                <Database className="w-4 h-4 text-violet-600" />
+                <h3 className="text-xs font-bold text-violet-700 uppercase tracking-widest flex-1">Carrera Administrativa</h3>
               </div>
-            ) : (
-              <p className="text-sm text-slate-500 text-center py-3">
-                ✓ No se encontraron empleados nuevos para agregar.
-              </p>
-            )}
-          </div>
+              <div className="p-4 flex flex-col gap-4">
+                {/* Contadores */}
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="flex flex-col items-center justify-center bg-emerald-50 border border-emerald-200 rounded-lg py-2 px-1">
+                    <span className="text-xl font-bold text-emerald-700">{ca.nuevas.length}</span>
+                    <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mt-0.5">Nuevas</span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center bg-blue-50 border border-blue-200 rounded-lg py-2 px-1">
+                    <span className="text-xl font-bold text-blue-700">{ca.actualizadas.length}</span>
+                    <span className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider mt-0.5">Actualizadas</span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-lg py-2 px-1">
+                    <span className="text-xl font-bold text-slate-600">{ca.sinCambios}</span>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mt-0.5">Sin cambios</span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center bg-red-50 border border-red-200 rounded-lg py-2 px-1">
+                    <span className="text-xl font-bold text-red-600">{ca.errores}</span>
+                    <span className="text-[10px] font-semibold text-red-500 uppercase tracking-wider mt-0.5">Errores</span>
+                  </div>
+                </div>
+
+                {/* Nuevas */}
+                {ca.nuevas.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Entradas nuevas ({ca.nuevas.length})
+                    </p>
+                    <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                      {ca.nuevas.map((c, i) => (
+                        <div key={`${c.dni}-${i}`} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 transition text-xs">
+                          <span className="font-mono text-slate-600">{c.dni}</span>
+                          <span className="text-slate-400">alta: {c.fechaAlta}</span>
+                          {c.fechaBaja && <span className="text-slate-400">baja: {c.fechaBaja}</span>}
+                          {c.causaBaja && <span className="text-slate-400 ml-auto">{c.causaBaja}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Actualizadas */}
+                {ca.actualizadas.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5" /> Actualizadas ({ca.actualizadas.length})
+                    </p>
+                    <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                      {ca.actualizadas.map((c, i) => (
+                        <div key={`${c.dni}-${i}`} className="px-3 py-2 hover:bg-slate-50 transition">
+                          <div className="flex items-center gap-2 mb-1 text-xs">
+                            <span className="font-mono text-slate-600">{c.dni}</span>
+                            <span className="text-slate-400">alta: {c.fechaAlta}</span>
+                          </div>
+                          {c.diffs.map((d) => (
+                            <div key={d.campo} className="flex items-center gap-1.5 pl-4 mt-0.5">
+                              <span className="text-[10px] font-mono text-slate-400 w-24 shrink-0">{d.campo}</span>
+                              <span className="text-[10px] text-red-500 line-through">{d.anterior || '—'}</span>
+                              <ArrowRight className="w-3 h-3 text-slate-300 shrink-0" />
+                              <span className="text-[10px] text-emerald-600 font-semibold">{d.nuevo || '—'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Errores */}
+                {ca.errorDetails.length > 0 && (
+                  <div className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg p-2 max-h-24 overflow-y-auto">
+                    {ca.errorDetails.map((e, i) => <p key={i}>{e}</p>)}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Action button */}
+      {/* Botón */}
       <div className="flex items-center gap-3 justify-between">
         {result?.lastUpdated && (
           <span className="text-xs text-slate-400 flex items-center gap-1">
@@ -339,8 +489,8 @@ function ActualizacionMasiva() {
           className="ml-auto flex items-center gap-2 px-5 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition shadow-sm"
         >
           {running
-            ? <><Loader2 className="w-4 h-4 animate-spin" /> Sincronizando...</>
-            : <><RefreshCw className="w-4 h-4" /> Sincronizar desde Base</>
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> Procesando Excel...</>
+            : <><RefreshCw className="w-4 h-4" /> Actualizar desde Excel</>
           }
         </button>
       </div>
