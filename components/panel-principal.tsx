@@ -908,8 +908,8 @@ export default function PanelPrincipal() {
                         readOnly={ro}
                         placeholder="Número de teléfono"
                         autoComplete="off"
-                        className={`flex-1 min-w-0 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a] transition ${
-                          ro ? 'bg-slate-50 text-slate-500 cursor-default' : ''
+                        className={`flex-1 min-w-0 rounded-md border border-slate-200 px-2.5 py-1.5 text-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a] transition ${
+                          ro ? 'bg-slate-50 text-slate-500 cursor-default' : 'bg-white text-slate-800'
                         }`}
                       />
                       {selected.telefono && (

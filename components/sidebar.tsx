@@ -3,6 +3,8 @@
 import { Shield, LayoutDashboard, Settings, FileText, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+type OpMode = 'agregar-agente' | 'actualizacion-masiva'
+
 type NavSection = 'inicio' | 'operaciones' | 'informes'
 
 interface SidebarProps {
@@ -10,13 +12,13 @@ interface SidebarProps {
   onSectionChange: (section: NavSection) => void
   expandedOp: boolean
   onToggleOp: () => void
+  activeOp: OpMode | null
+  onOpSelect: (op: OpMode) => void
 }
 
-const opSubItems = [
-  'Añadir/Agregar Nuevo',
-  'Consultar Registro',
-  'Modificar Registro',
-  'Eliminar Registro',
+const opSubItems: { key: OpMode; label: string }[] = [
+  { key: 'agregar-agente', label: 'Agregar Nuevo Agente' },
+  { key: 'actualizacion-masiva', label: 'Actualización Masiva' },
 ]
 
 export default function Sidebar({
@@ -24,6 +26,8 @@ export default function Sidebar({
   onSectionChange,
   expandedOp,
   onToggleOp,
+  activeOp,
+  onOpSelect,
 }: SidebarProps) {
   return (
     <aside className="flex flex-col w-56 min-h-screen bg-[#172554] text-slate-200 flex-shrink-0">
@@ -84,11 +88,17 @@ export default function Sidebar({
             <div className="flex flex-col gap-0.5 mt-1 ml-4 pl-3 border-l border-[#1e3a8a]">
               {opSubItems.map((item) => (
                 <button
-                  key={item}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-blue-300 hover:text-white hover:bg-[#1e3a8a] transition-colors w-full text-left"
+                  key={item.key}
+                  onClick={() => onOpSelect(item.key)}
+                  className={cn(
+                    'flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors w-full text-left',
+                    activeOp === item.key
+                      ? 'bg-[#1d4ed8] text-white font-semibold'
+                      : 'text-blue-300 hover:text-white hover:bg-[#1e3a8a]'
+                  )}
                 >
                   <span className="w-1 h-1 rounded-full bg-blue-400 flex-shrink-0" />
-                  {item}
+                  {item.label}
                 </button>
               ))}
             </div>

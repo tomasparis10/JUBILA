@@ -1,4 +1,4 @@
-﻿/**
+/**
  * utils/calculosPrevisionales.ts
  *
  * Funciones puras para calcular antiguedad previsional y fecha estimada
@@ -28,14 +28,14 @@ export interface FaseCarrera {
  * Usa anos de 365 dias y meses de 30 dias.
  */
 export function formatDias(totalDias: number): string {
-  if (totalDias <= 0) return '0 Anos, 0 Meses, 0 Dias'
+  if (totalDias <= 0) return '0 Años, 0 Meses, 0 Días'
 
   const anos = Math.floor(totalDias / 365)
   const diasRestantes = totalDias % 365
   const meses = Math.floor(diasRestantes / 30)
   const dias = diasRestantes % 30
 
-  return `${anos} Ano${anos !== 1 ? 's' : ''}, ${meses} Mes${meses !== 1 ? 'es' : ''}, ${dias} Dia${dias !== 1 ? 's' : ''}`
+  return `${anos} Año${anos !== 1 ? 's' : ''}, ${meses} Mes${meses !== 1 ? 'es' : ''}, ${dias} Día${dias !== 1 ? 's' : ''}`
 }
 
 /** Calcula la diferencia en dias completos entre dos fechas (fin - inicio). */
@@ -59,7 +59,7 @@ function difEnDias(inicio: Date, fin: Date): number {
  * - Si el array de fases esta vacio -> devuelve "0 Anos, 0 Meses, 0 Dias".
  */
 export function calcAntiguedadRecibo(fases: FaseCarrera[]): string {
-  if (!fases || fases.length === 0) return '0 Anos, 0 Meses, 0 Dias'
+  if (!fases || fases.length === 0) return '0 Años, 0 Meses, 0 Días'
 
   const hoy = new Date()
   let totalDias = 0
@@ -94,7 +94,7 @@ const CORTE_LICENCIAS = new Date(2025, 11, 31) // 31 de diciembre de 2025
  *   5. Si el array de fases esta vacio -> devuelve "0 Anos, 0 Meses, 0 Dias".
  */
 export function calcAntiguedadLicencias(fases: FaseCarrera[]): string {
-  if (!fases || fases.length === 0) return '0 Anos, 0 Meses, 0 Dias'
+  if (!fases || fases.length === 0) return '0 Años, 0 Meses, 0 Días'
 
   const inicioAnio2026 = new Date(2026, 0, 1) // 01/01/2026
 

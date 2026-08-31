@@ -6,8 +6,10 @@ import Sidebar from '@/components/sidebar'
 import TopBar from '@/components/top-bar'
 import PanelPrincipal from '@/components/panel-principal'
 import InformesAnaliticas from '@/components/informes-analiticas'
+import OperacionesPanel from '@/components/operaciones-panel'
 
 type NavSection = 'inicio' | 'operaciones' | 'informes'
+type OpMode = 'agregar-agente' | 'actualizacion-masiva'
 
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false)
@@ -15,6 +17,7 @@ export default function App() {
   const [userId, setUserId] = useState<number>(1)
   const [activeSection, setActiveSection] = useState<NavSection>('inicio')
   const [expandedOp, setExpandedOp] = useState(false)
+  const [activeOp, setActiveOp] = useState<OpMode | null>(null)
 
   const handleLogin = (name: string, id: number) => {
     setUsername(name)
@@ -27,6 +30,13 @@ export default function App() {
     setUsername('')
     setActiveSection('inicio')
     setExpandedOp(false)
+    setActiveOp(null)
+  }
+
+  const handleOpSelect = (op: OpMode) => {
+    setActiveSection('operaciones')
+    setActiveOp(op)
+    setExpandedOp(true)
   }
 
   if (!loggedIn) {
@@ -38,9 +48,14 @@ export default function App() {
       {/* Sidebar */}
       <Sidebar
         activeSection={activeSection}
-        onSectionChange={setActiveSection}
+        onSectionChange={(section) => {
+          setActiveSection(section)
+          if (section !== 'operaciones') setActiveOp(null)
+        }}
         expandedOp={expandedOp}
         onToggleOp={() => setExpandedOp((v) => !v)}
+        activeOp={activeOp}
+        onOpSelect={handleOpSelect}
       />
 
       {/* Right side: topbar + main */}
@@ -54,11 +69,8 @@ export default function App() {
         )}
 
         {activeSection === 'operaciones' && (
-          <main className="flex-1 overflow-y-auto p-6">
-            <h1 className="text-xl font-bold text-slate-800 mb-2">Operaciones</h1>
-            <p className="text-slate-500 text-sm">
-              Seleccione una operación del menú lateral para continuar.
-            </p>
+          <main className="flex-1 overflow-y-auto">
+            <OperacionesPanel activeOp={activeOp} onChangeOp={handleOpSelect} />
           </main>
         )}
 
