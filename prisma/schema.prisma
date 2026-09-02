@@ -39,6 +39,8 @@ model DATOS_PERSONALES_AGENTE_JUBILA {
   SEXO                                String?              @db.VarChar(50)
   ANTIGUEDAD_RECIBO                   DateTime?            @db.Date
   ANTIGUEDAD_LICENCIAS                DateTime?            @db.Date
+  ANTIGUEDAD_RECIBO_CALC              String?              @db.VarChar(200)
+  ANTIGUEDAD_LICENCIAS_CALC           String?              @db.VarChar(200)
   FECHA_ESTIMADA_JUBILACI_N_ORDINARIA DateTime?            @map("FECHA_ESTIMADA_JUBILACIÓN_ORDINARIA") @db.Date
   EDAD_ESTIMACION_JUBILACION          Int?
   ESTADO_ACTIVO                       Boolean              @default(true, map: "DF__DATOS_PER__ESTAD__0D7A0286")

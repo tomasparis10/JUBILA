@@ -12,13 +12,20 @@ import {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Convierte un Date de DB a string 'dd/mm/aaaa' o '' si es null */
+/**
+ * Convierte un Date de DB a string 'dd/mm/aaaa' o '' si es null.
+ *
+ * IMPORTANTE: Se usan los métodos getUTC* en lugar de getDate/getMonth/getFullYear
+ * para evitar el desplazamiento de zona horaria en servidores/clientes con UTC-3 (Argentina).
+ * SQL Server guarda las fechas Date-only como UTC medianoche; si se usa getDate(),
+ * en GMT-3 se restaría un día mostrando la fecha incorrecta.
+ */
 function dbDateToStr(date: Date | null | undefined): string {
   if (!date) return ''
   const d = new Date(date)
-  const dd = String(d.getDate()).padStart(2, '0')
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const yyyy = d.getFullYear()
+  const dd = String(d.getUTCDate()).padStart(2, '0')
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const yyyy = d.getUTCFullYear()
   return `${dd}/${mm}/${yyyy}`
 }
 
@@ -42,16 +49,7 @@ function calcAntiguedad(desde: Date | null | undefined, hasta: Date = new Date()
   return `${years} año${years !== 1 ? 's' : ''}, ${months} mes${months !== 1 ? 'es' : ''}`
 }
 
-/** Calcula la edad actual en años */
-function calcEdad(fechaNac: Date | null | undefined): string {
-  if (!fechaNac) return ''
-  const hoy = new Date()
-  const nac = new Date(fechaNac)
-  let edad = hoy.getFullYear() - nac.getFullYear()
-  const m = hoy.getMonth() - nac.getMonth()
-  if (m < 0 || (m === 0 && hoy.getDate() < nac.getDate())) edad--
-  return String(edad)
-}
+// calcEdad eliminado: la edad se lee directamente del campo EDAD_ESTIMACION_JUBILACION de la DB.
 
 /**
  * Mapea un registro JUBILA (con sus relaciones) al tipo JubilacionRecord
@@ -86,7 +84,8 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
   const agente = j.DATOS_PERSONALES_AGENTE_JUBILA
   const regimen = agente.REGIMEN_JUBILATORIO
 
-  // ── Cálculos dinámicos de antigüedad desde CARRERA_ADMINISTRATIVA ──────────
+  // ── Antigüedad: se calcula dinámicamente desde CARRERA_ADMINISTRATIVA ───────
+  // (son duraciones acumuladas, no fechas; no se persisten en la DB)
   const fases: FaseCarrera[] = (agente.CARRERA_ADMINISTRATIVA ?? []).map((f) => ({
     FECHA_ALTA: f.FECHA_ALTA,
     FECHA_BAJA: f.FECHA_BAJA,
@@ -94,14 +93,8 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
   const antiguedadRecibo = calcAntiguedadRecibo(fases)
   const antiguedadLicencias = calcAntiguedadLicencias(fases)
 
-  // ── Fecha estimada de jubilación dinámica ─────────────────────────────────
-  const fechaJubilacionCalc = calcFechaJubilacion(
-    agente.FECHA_NACIMIENTO,
-    regimen?.EDAD_REQUERIDA ?? null,
-  )
-  const fechaEstimadaJubilacionOrdinaria = fechaJubilacionCalc
-    ? dbDateToStr(fechaJubilacionCalc)
-    : ''
+  // ── Fecha estimada y edad: se leen directo de la DB (pre-calculadas al importar) ─
+  const fechaEstimadaJubilacionOrdinaria = dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA)
 
   // Trazabilidad: cada entrada del historial de beneficios
   const trazabilidad: TrazabilidadEntry[] = j.HISTORIAL_BENEFICIO.map((h) => ({
@@ -145,7 +138,7 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
     antiguedadRecibo,
     antiguedadLicencias,
     fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
-    edadActual: calcEdad(agente.FECHA_NACIMIENTO),
+    edadActual: agente.EDAD_ESTIMACION_JUBILACION != null ? String(agente.EDAD_ESTIMACION_JUBILACION) : '',
     fechaEstimadaJubilacionOrdinaria,
     beneficio: beneficioActual ? String(beneficioActual.ID_BENEFICIO) : '',
     nroTramite: j.INFORMACION_LABORAL_NUMERO_TRAMITE ?? '',
@@ -185,7 +178,7 @@ type AgenteBase = NonNullable<Awaited<ReturnType<typeof prisma.dATOS_PERSONALES_
 function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
   const renovacionVacia = { nroResRenov: '', nroExpMun: '', fechaDesdeExp: '', fechaHastaExp: '', jNroExpCaja: '', nroDcto: '' }
 
-  // Cálculos dinámicos desde CARRERA_ADMINISTRATIVA
+  // ── Antigüedad: calculada dinámicamente desde CARRERA_ADMINISTRATIVA ────────
   const fases: FaseCarrera[] = ((agente as any).CARRERA_ADMINISTRATIVA ?? []).map((f: any) => ({
     FECHA_ALTA: f.FECHA_ALTA,
     FECHA_BAJA: f.FECHA_BAJA,
@@ -193,15 +186,8 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
   const antiguedadRecibo = calcAntiguedadRecibo(fases)
   const antiguedadLicencias = calcAntiguedadLicencias(fases)
 
-  // Fecha estimada de jubilación
-  const regimen = (agente as any).REGIMEN_JUBILATORIO ?? null
-  const fechaJubilacionCalc = calcFechaJubilacion(
-    agente.FECHA_NACIMIENTO,
-    regimen?.EDAD_REQUERIDA ?? null,
-  )
-  const fechaEstimadaJubilacionOrdinaria = fechaJubilacionCalc
-    ? dbDateToStr(fechaJubilacionCalc)
-    : ''
+  // ── Fecha estimada y edad: leídas directo de la DB (pre-calculadas al importar) ─
+  const fechaEstimadaJubilacionOrdinaria = dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA)
 
   return {
     id: `agente-${agente.ID_DATOS_PERSONALES_AGENTE_JUBILA}`,
@@ -218,7 +204,7 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
     antiguedadRecibo,
     antiguedadLicencias,
     fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
-    edadActual: calcEdad(agente.FECHA_NACIMIENTO),
+    edadActual: agente.EDAD_ESTIMACION_JUBILACION != null ? String(agente.EDAD_ESTIMACION_JUBILACION) : '',
     fechaEstimadaJubilacionOrdinaria,
     beneficio: '1',
     nroTramite: '', fBaja: '', nroExpMunRenuncia: '',
@@ -676,6 +662,76 @@ export async function deleteJubila(id: string): Promise<{ ok: boolean; error?: s
   } catch (error) {
     console.error('[deleteJubila] Error:', error)
     return { ok: false, error: 'Error al eliminar el registro.' }
+  }
+}
+
+/**
+ * Tipo simplificado para el widget de próximas jubilaciones.
+ */
+export interface AgenteProxJubilacion {
+  dni: string
+  apellidoNombres: string
+  fechaEstimada: string // 'dd/mm/aaaa'
+}
+
+/**
+ * Devuelve los agentes activos cuya fecha estimada de jubilación ordinaria
+ * cae dentro del mes en curso (±30 días respecto a hoy).
+ * La fecha se calcula dinámicamente: FECHA_NACIMIENTO + EDAD_REQUERIDA del régimen.
+ */
+export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]> {
+  try {
+    const hoy = new Date()
+    const hace30Dias = new Date(hoy)
+    hace30Dias.setDate(hoy.getDate() - 30)
+    const en30Dias = new Date(hoy)
+    en30Dias.setDate(hoy.getDate() + 30)
+
+    const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
+      where: {
+        ESTADO_ACTIVO: true,
+        ID_REGIMEN_JUBILATORIO: { not: undefined },
+      },
+      include: {
+        REGIMEN_JUBILATORIO: true,
+      },
+    })
+
+    const resultado: AgenteProxJubilacion[] = []
+
+    for (const agente of agentes) {
+      if (!agente.FECHA_NACIMIENTO) continue
+      const edadReq = (agente as any).REGIMEN_JUBILATORIO?.EDAD_REQUERIDA ?? null
+      const fechaJub = calcFechaJubilacion(agente.FECHA_NACIMIENTO, edadReq)
+      if (!fechaJub) continue
+
+      // Filtrar los que jubilan dentro del rango ±30 días
+      if (fechaJub >= hace30Dias && fechaJub <= en30Dias) {
+        const d = new Date(fechaJub)
+        const dd = String(d.getDate()).padStart(2, '0')
+        const mm = String(d.getMonth() + 1).padStart(2, '0')
+        const yyyy = d.getFullYear()
+        resultado.push({
+          dni: agente.DNI_AGENTE,
+          apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+          fechaEstimada: `${dd}/${mm}/${yyyy}`,
+        })
+      }
+    }
+
+    // Ordenar por fecha estimada ascendente
+    resultado.sort((a, b) => {
+      const toMs = (s: string) => {
+        const [dd, mm, yyyy] = s.split('/')
+        return new Date(`${yyyy}-${mm}-${dd}`).getTime()
+      }
+      return toMs(a.fechaEstimada) - toMs(b.fechaEstimada)
+    })
+
+    return resultado
+  } catch (error) {
+    console.error('[getAgentesProxJubilacion] Error:', error)
+    return []
   }
 }
 

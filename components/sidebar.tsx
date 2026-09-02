@@ -2,6 +2,7 @@
 
 import { Shield, LayoutDashboard, Settings, FileText, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import ProxJubilacionesWidget from '@/components/prox-jubilaciones-widget'
 
 type OpMode = 'agregar-agente' | 'actualizacion-masiva'
 
@@ -14,6 +15,7 @@ interface SidebarProps {
   onToggleOp: () => void
   activeOp: OpMode | null
   onOpSelect: (op: OpMode) => void
+  onAgenteSelect: (dni: string) => void
 }
 
 const opSubItems: { key: OpMode; label: string }[] = [
@@ -28,6 +30,7 @@ export default function Sidebar({
   onToggleOp,
   activeOp,
   onOpSelect,
+  onAgenteSelect,
 }: SidebarProps) {
   return (
     <aside className="flex flex-col w-56 min-h-screen bg-[#172554] text-slate-200 flex-shrink-0">
@@ -45,7 +48,7 @@ export default function Sidebar({
       </div>
 
       {/* Navigation */}
-      <nav className="flex flex-col gap-1 px-3 pt-4 flex-1">
+      <nav className="flex flex-col gap-1 px-3 pt-4">
         {/* INICIO */}
         <button
           onClick={() => onSectionChange('inicio')}
@@ -119,6 +122,15 @@ export default function Sidebar({
           <span>INFORMES</span>
         </button>
       </nav>
+
+      {/* Spacer */}
+      <div className="flex-1 pt-4" />
+
+      {/* Widget: Próximos a Jubilar */}
+      <ProxJubilacionesWidget onAgenteClick={(dni) => {
+        onSectionChange('inicio')
+        onAgenteSelect(dni)
+      }} />
 
       {/* Footer */}
       <div className="px-4 pb-4 pt-2 border-t border-[#1e3a8a]">

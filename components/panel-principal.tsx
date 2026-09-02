@@ -104,7 +104,12 @@ function getRecordDiffs(initial: JubilacionRecord | null, current: JubilacionRec
   return diffs
 }
 
-export default function PanelPrincipal() {
+interface PanelPrincipalProps {
+  externalDni?: string | null
+  onExternalDniConsumed?: () => void
+}
+
+export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: PanelPrincipalProps = {}) {
   const [search, setSearch]               = useState('')
   const [selectedId, setSelectedId]       = useState<string | null>(null)
   const [records, setRecords]             = useState<JubilacionRecord[]>([])
@@ -174,6 +179,36 @@ export default function PanelPrincipal() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
+
+  // ── Búsqueda disparada externamente desde el widget del sidebar ───────────
+  useEffect(() => {
+    if (!externalDni) return
+    let cancelled = false
+    async function loadExternal() {
+      setLoadingSearch(true)
+      setGlobalError(null)
+      try {
+        const results = await searchAgentes(externalDni!)
+        if (!cancelled) {
+          if (results.length >= 1) {
+            setSearch(externalDni!)
+            setRecords(results)
+            handleSelectId(results[0].id)
+          } else {
+            setNotFoundPopup(true)
+          }
+        }
+      } catch {
+        if (!cancelled) setGlobalError('Error al buscar en la base de datos. Verifique la conexión.')
+      } finally {
+        if (!cancelled) setLoadingSearch(false)
+        onExternalDniConsumed?.()
+      }
+    }
+    loadExternal()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalDni])
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const update = (field: keyof JubilacionRecord, value: string) => {

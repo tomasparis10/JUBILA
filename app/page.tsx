@@ -18,6 +18,7 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<NavSection>('inicio')
   const [expandedOp, setExpandedOp] = useState(false)
   const [activeOp, setActiveOp] = useState<OpMode | null>(null)
+  const [externalDni, setExternalDni] = useState<string | null>(null)
 
   const handleLogin = (name: string, id: number) => {
     setUsername(name)
@@ -31,12 +32,18 @@ export default function App() {
     setActiveSection('inicio')
     setExpandedOp(false)
     setActiveOp(null)
+    setExternalDni(null)
   }
 
   const handleOpSelect = (op: OpMode) => {
     setActiveSection('operaciones')
     setActiveOp(op)
     setExpandedOp(true)
+  }
+
+  const handleAgenteSelect = (dni: string) => {
+    setActiveSection('inicio')
+    setExternalDni(dni)
   }
 
   if (!loggedIn) {
@@ -56,6 +63,7 @@ export default function App() {
         onToggleOp={() => setExpandedOp((v) => !v)}
         activeOp={activeOp}
         onOpSelect={handleOpSelect}
+        onAgenteSelect={handleAgenteSelect}
       />
 
       {/* Right side: topbar + main */}
@@ -64,7 +72,10 @@ export default function App() {
 
         {activeSection === 'inicio' && (
           <main className="flex-1 overflow-y-auto">
-            <PanelPrincipal />
+            <PanelPrincipal
+              externalDni={externalDni}
+              onExternalDniConsumed={() => setExternalDni(null)}
+            />
           </main>
         )}
 

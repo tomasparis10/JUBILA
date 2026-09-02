@@ -48,17 +48,23 @@ function difEnDias(inicio: Date, fin: Date): number {
 }
 
 // ---------------------------------------------------------------------------
-// A. Antiguedad Recibo (total a hoy)
+// A. Antiguedad Recibo (con factor excedente)
 // ---------------------------------------------------------------------------
 
 /**
- * Calcula la antiguedad total sumando los dias de cada fase de CARRERA_ADMINISTRATIVA.
+ * Calcula la antigüedad total sumando los días de cada fase de CARRERA_ADMINISTRATIVA.
  *
- * - Si FECHA_BAJA es null -> la fase esta activa -> se usa la fecha actual como limite.
- * - Si FECHA_ALTA es null -> la fase se ignora.
- * - Si el array de fases esta vacio -> devuelve "0 Anos, 0 Meses, 0 Dias".
+ * Regla de excedente: si se proporciona `fechaJubilacion` y el agente trabajó
+ * después de esa fecha, los días de excedente se cuentan al 50% (/ 2).
+ *
+ * - Si FECHA_BAJA es null → fase activa → se usa la fecha actual como límite.
+ * - Si FECHA_ALTA es null → la fase se ignora.
+ * - Si el array está vacío → devuelve "0 Años, 0 Meses, 0 Días".
  */
-export function calcAntiguedadRecibo(fases: FaseCarrera[]): string {
+export function calcAntiguedadRecibo(
+  fases: FaseCarrera[],
+  fechaJubilacion?: Date | null,
+): string {
   if (!fases || fases.length === 0) return '0 Años, 0 Meses, 0 Días'
 
   const hoy = new Date()
@@ -68,58 +74,83 @@ export function calcAntiguedadRecibo(fases: FaseCarrera[]): string {
     if (!fase.FECHA_ALTA) continue
 
     const inicio = new Date(fase.FECHA_ALTA)
-    const fin = fase.FECHA_BAJA ? new Date(fase.FECHA_BAJA) : hoy
+    const fin    = fase.FECHA_BAJA ? new Date(fase.FECHA_BAJA) : hoy
 
-    totalDias += difEnDias(inicio, fin)
+    if (fechaJubilacion) {
+      // ── Parte regular: inicio → min(fin, fechaJubilacion) ──────────────────
+      const corte = new Date(Math.min(fin.getTime(), fechaJubilacion.getTime()))
+      if (inicio < corte) {
+        totalDias += difEnDias(inicio, corte)
+      }
+      // ── Parte excedente: fechaJubilacion → fin (si lo supera) ──────────────
+      if (fin > fechaJubilacion) {
+        const inicioExcedente = inicio > fechaJubilacion ? inicio : fechaJubilacion
+        const diasExcedente = difEnDias(inicioExcedente, fin)
+        totalDias += Math.floor(diasExcedente / 2)
+      }
+    } else {
+      // Sin fecha de jubilación: contar todo completo
+      totalDias += difEnDias(inicio, fin)
+    }
   }
 
   return formatDias(totalDias)
 }
 
 // ---------------------------------------------------------------------------
-// B. Antiguedad Licencias (corte al 31/12/2025)
+// B. Antiguedad Licencias (corte al 31/12/2025 + factor excedente)
 // ---------------------------------------------------------------------------
 
-/** Fecha de corte para el calculo de Antiguedad Licencias */
-const CORTE_LICENCIAS = new Date(2025, 11, 31) // 31 de diciembre de 2025
+/** Fecha de corte para el cálculo de Antigüedad Licencias */
+const CORTE_LICENCIAS = new Date(Date.UTC(2025, 11, 31)) // 31/12/2025 UTC
 
 /**
- * Calcula la antiguedad con corte estricto al 31/12/2025.
+ * Calcula la antigüedad con corte estricto al 31/12/2025.
  *
- * Reglas:
- *   1. Si FECHA_ALTA es null -> la fase se ignora.
- *   2. Si FECHA_ALTA >= 01/01/2026 -> la fase se ignora completamente.
- *   3. Si FECHA_BAJA es null o > 31/12/2025 -> se usa 31/12/2025 como limite.
- *   4. Si FECHA_BAJA <= 31/12/2025 -> se calcula normal.
- *   5. Si el array de fases esta vacio -> devuelve "0 Anos, 0 Meses, 0 Dias".
+ * Regla de excedente: si se proporciona `fechaJubilacion` y ésta es anterior
+ * al corte, los días entre `fechaJubilacion` y el corte (31/12/2025) se
+ * cuentan al 50% (/ 2).
+ *
+ * Reglas de corte:
+ *   1. Si FECHA_ALTA es null → la fase se ignora.
+ *   2. Si FECHA_ALTA >= 01/01/2026 → la fase se ignora.
+ *   3. El límite máximo para cualquier fase es 31/12/2025.
  */
-export function calcAntiguedadLicencias(fases: FaseCarrera[]): string {
+export function calcAntiguedadLicencias(
+  fases: FaseCarrera[],
+  fechaJubilacion?: Date | null,
+): string {
   if (!fases || fases.length === 0) return '0 Años, 0 Meses, 0 Días'
 
-  const inicioAnio2026 = new Date(2026, 0, 1) // 01/01/2026
-
+  const inicioAnio2026 = new Date(Date.UTC(2026, 0, 1)) // 01/01/2026 UTC
   let totalDias = 0
 
   for (const fase of fases) {
     if (!fase.FECHA_ALTA) continue
 
     const inicio = new Date(fase.FECHA_ALTA)
+    if (inicio >= inicioAnio2026) continue // Fase iniciada en 2026 o después → ignorar
 
-    // Regla 2: Si la fase empezo en 2026 o despues -> ignorar
-    if (inicio >= inicioAnio2026) continue
+    // El fin de la fase nunca supera el corte de licencias
+    const finRaw = fase.FECHA_BAJA ? new Date(fase.FECHA_BAJA) : CORTE_LICENCIAS
+    const fin    = finRaw > CORTE_LICENCIAS ? CORTE_LICENCIAS : finRaw
 
-    // Determinar el limite de fin para esta fase
-    let fin: Date
-    if (!fase.FECHA_BAJA) {
-      // Fase activa -> corte al 31/12/2025
-      fin = CORTE_LICENCIAS
+    if (fechaJubilacion && fechaJubilacion < CORTE_LICENCIAS) {
+      // ── Parte regular: inicio → min(fin, fechaJubilacion) ──────────────────
+      const corte = new Date(Math.min(fin.getTime(), fechaJubilacion.getTime()))
+      if (inicio < corte) {
+        totalDias += difEnDias(inicio, corte)
+      }
+      // ── Parte excedente: fechaJubilacion → fin (dentro del corte) ──────────
+      if (fin > fechaJubilacion) {
+        const inicioExcedente = inicio > fechaJubilacion ? inicio : fechaJubilacion
+        const diasExcedente = difEnDias(inicioExcedente, fin)
+        totalDias += Math.floor(diasExcedente / 2)
+      }
     } else {
-      const fechaBaja = new Date(fase.FECHA_BAJA)
-      // Si termino despues del corte -> usar el corte
-      fin = fechaBaja > CORTE_LICENCIAS ? CORTE_LICENCIAS : fechaBaja
+      // Sin fecha de jubilación (o ya posterior al corte): contar todo completo
+      totalDias += difEnDias(inicio, fin)
     }
-
-    totalDias += difEnDias(inicio, fin)
   }
 
   return formatDias(totalDias)
