@@ -3,6 +3,11 @@ import * as XLSX from 'xlsx'
 import * as fs from 'fs'
 import * as path from 'path'
 import { prisma } from '@/lib/prisma'
+import {
+  calcAntiguedadRecibo,
+  calcAntiguedadLicencias,
+  type FaseCarrera,
+} from '@/utils/calculosPrevisionales'
 
 interface DiffField { campo: string; anterior: string; nuevo: string }
 
@@ -201,6 +206,39 @@ async function recalcularCamposDerivados(dni: string): Promise<void> {
   })
 }
 
+/**
+ * Recalcula y persiste ANTIGUEDAD_RECIBO_CALC y ANTIGUEDAD_LICENCIAS_CALC
+ * para un agente dado su DNI. Lee las fases de CARRERA_ADMINISTRATIVA y
+ * los campos derivados de la DB.
+ */
+async function recalcularAntiguedades(dni: string): Promise<void> {
+  const agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
+    where: { DNI_AGENTE: dni },
+    include: {
+      CARRERA_ADMINISTRATIVA: { orderBy: { FECHA_ALTA: 'asc' } },
+    },
+  })
+  if (!agente) return
+
+  const fases: FaseCarrera[] = (agente.CARRERA_ADMINISTRATIVA ?? []).map((f) => ({
+    FECHA_ALTA: f.FECHA_ALTA,
+    FECHA_BAJA: f.FECHA_BAJA,
+  }))
+  const fechaJubRaw = agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA
+  const fechaJubilacion = fechaJubRaw ? new Date(fechaJubRaw) : null
+
+  const antiguedadRecibo = calcAntiguedadRecibo(fases, fechaJubilacion)
+  const antiguedadLicencias = calcAntiguedadLicencias(fases, fechaJubilacion)
+
+  await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
+    where: { DNI_AGENTE: dni },
+    data: {
+      ANTIGUEDAD_RECIBO_CALC: antiguedadRecibo,
+      ANTIGUEDAD_LICENCIAS_CALC: antiguedadLicencias,
+    },
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Procesamiento Datos Personales
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,6 +308,8 @@ async function processDatosPersonales() {
             ID_REGIMEN_JUBILATORIO: idRegimen,
             FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
             EDAD_ESTIMACION_JUBILACION: edadActual,
+            ANTIGUEDAD_RECIBO_CALC: '0 Años, 0 Meses, 0 Días',
+            ANTIGUEDAD_LICENCIAS_CALC: '0 Años, 0 Meses, 0 Días',
           },
         })
         nuevos.push({
@@ -429,11 +469,11 @@ async function processCarreraAdministrativa() {
     }
   }
 
-  // Tras procesar carrera, recalcular FECHA_ESTIMADA y EDAD para todos los afectados
-  // (la antigüedad se calcula en tiempo real en el front, pero fecha/edad vienen de DB)
+  // Tras procesar carrera, recalcular FECHA_ESTIMADA, EDAD y antigüedades para todos los afectados
   for (const dni of dnisAfectados) {
     try {
       await recalcularCamposDerivados(dni)
+      await recalcularAntiguedades(dni)
     } catch {
       // No interrumpir el flujo si falla el recálculo de un agente
     }
@@ -458,6 +498,23 @@ export async function POST() {
     const caData = caResult.status === 'fulfilled'
       ? caResult.value
       : { nuevas: [], actualizadas: [], sinCambios: 0, errores: 1, errorDetails: [String((caResult as PromiseRejectedResult).reason)] }
+
+    // Recalcular antigüedades para agentes afectados solo por DatosPersonales
+    // (los afectados por Carrera ya se recalcularon dentro de processCarreraAdministrativa)
+    const carreraDnis = new Set(
+      caResult.status === 'fulfilled'
+        ? caResult.value.nuevas.map(c => c.dni).concat(caResult.value.actualizadas.map(c => c.dni))
+        : []
+    )
+    for (const dni of dpData.dnisAfectados) {
+      if (!carreraDnis.has(dni)) {
+        try {
+          await recalcularAntiguedades(dni)
+        } catch {
+          // No interrumpir el flujo
+        }
+      }
+    }
 
     return NextResponse.json({
       ok: true,

@@ -3,12 +3,6 @@
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import type { JubilacionRecord, RenovProvisoria, TrazabilidadEntry } from '@/lib/jubilaciones-data'
-import {
-  calcAntiguedadRecibo,
-  calcAntiguedadLicencias,
-  calcFechaJubilacion,
-  type FaseCarrera,
-} from '@/utils/calculosPrevisionales'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -84,16 +78,12 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
   const agente = j.DATOS_PERSONALES_AGENTE_JUBILA
   const regimen = agente.REGIMEN_JUBILATORIO
 
-  // ── Antigüedad: se calcula dinámicamente desde CARRERA_ADMINISTRATIVA ───────
-  // (son duraciones acumuladas, no fechas; no se persisten en la DB)
-  const fases: FaseCarrera[] = (agente.CARRERA_ADMINISTRATIVA ?? []).map((f) => ({
-    FECHA_ALTA: f.FECHA_ALTA,
-    FECHA_BAJA: f.FECHA_BAJA,
-  }))
-  const antiguedadRecibo = calcAntiguedadRecibo(fases)
-  const antiguedadLicencias = calcAntiguedadLicencias(fases)
-
-  // ── Fecha estimada y edad: se leen directo de la DB (pre-calculadas al importar) ─
+  // ── Antigüedad, fecha estimada y edad: se leen directo de la DB ──────────
+  // Los cálculos de antigüedad (recibo y licencias) y fecha estimada de
+  // jubilación se realizan SOLO durante la actualización masiva (OPERACION)
+  // y se persisten en estos campos. Aquí nunca se recalculan.
+  const antiguedadRecibo = agente.ANTIGUEDAD_RECIBO_CALC ?? ''
+  const antiguedadLicencias = agente.ANTIGUEDAD_LICENCIAS_CALC ?? ''
   const fechaEstimadaJubilacionOrdinaria = dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA)
 
   // Trazabilidad: cada entrada del historial de beneficios
@@ -178,15 +168,12 @@ type AgenteBase = NonNullable<Awaited<ReturnType<typeof prisma.dATOS_PERSONALES_
 function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
   const renovacionVacia = { nroResRenov: '', nroExpMun: '', fechaDesdeExp: '', fechaHastaExp: '', jNroExpCaja: '', nroDcto: '' }
 
-  // ── Antigüedad: calculada dinámicamente desde CARRERA_ADMINISTRATIVA ────────
-  const fases: FaseCarrera[] = ((agente as any).CARRERA_ADMINISTRATIVA ?? []).map((f: any) => ({
-    FECHA_ALTA: f.FECHA_ALTA,
-    FECHA_BAJA: f.FECHA_BAJA,
-  }))
-  const antiguedadRecibo = calcAntiguedadRecibo(fases)
-  const antiguedadLicencias = calcAntiguedadLicencias(fases)
-
-  // ── Fecha estimada y edad: leídas directo de la DB (pre-calculadas al importar) ─
+  // ── Antigüedad, fecha estimada y edad: se leen directo de la DB ──────────
+  // Los cálculos de antigüedad (recibo y licencias) y fecha estimada de
+  // jubilación se realizan SOLO durante la actualización masiva (OPERACION)
+  // y se persisten en estos campos. Aquí nunca se recalculan.
+  const antiguedadRecibo = agente.ANTIGUEDAD_RECIBO_CALC ?? ''
+  const antiguedadLicencias = agente.ANTIGUEDAD_LICENCIAS_CALC ?? ''
   const fechaEstimadaJubilacionOrdinaria = dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA)
 
   return {
@@ -672,12 +659,20 @@ export interface AgenteProxJubilacion {
   dni: string
   apellidoNombres: string
   fechaEstimada: string // 'dd/mm/aaaa'
+  cuil: string
+  fechaNacimiento: string
+  secretaria: string
+  programa: string
+  cargo: string
+  antiguedadRecibo: string
+  antiguedadLicencias: string
 }
 
 /**
  * Devuelve los agentes activos cuya fecha estimada de jubilación ordinaria
- * cae dentro del mes en curso (±30 días respecto a hoy).
- * La fecha se calcula dinámicamente: FECHA_NACIMIENTO + EDAD_REQUERIDA del régimen.
+ * (almacenada en la DB, calculada en la actualización masiva) cae dentro
+ * del mes en curso (±30 días respecto a hoy).
+ * No recalcula ninguna fecha: usa FECHA_ESTIMADA_JUBILACIÓN_ORDINARIA de la DB.
  */
 export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]> {
   try {
@@ -692,29 +687,33 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
         ESTADO_ACTIVO: true,
         ID_REGIMEN_JUBILATORIO: { not: undefined },
       },
-      include: {
-        REGIMEN_JUBILATORIO: true,
-      },
     })
 
     const resultado: AgenteProxJubilacion[] = []
 
     for (const agente of agentes) {
-      if (!agente.FECHA_NACIMIENTO) continue
-      const edadReq = (agente as any).REGIMEN_JUBILATORIO?.EDAD_REQUERIDA ?? null
-      const fechaJub = calcFechaJubilacion(agente.FECHA_NACIMIENTO, edadReq)
-      if (!fechaJub) continue
+      // Fecha estimada leída de la DB (calculada en la masiva)
+      if (!agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA) continue
+      const fechaJub = new Date(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA)
 
       // Filtrar los que jubilan dentro del rango ±30 días
       if (fechaJub >= hace30Dias && fechaJub <= en30Dias) {
         const d = new Date(fechaJub)
-        const dd = String(d.getDate()).padStart(2, '0')
-        const mm = String(d.getMonth() + 1).padStart(2, '0')
-        const yyyy = d.getFullYear()
+        const dd = String(d.getUTCDate()).padStart(2, '0')
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+        const yyyy = d.getUTCFullYear()
+
         resultado.push({
           dni: agente.DNI_AGENTE,
           apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
           fechaEstimada: `${dd}/${mm}/${yyyy}`,
+          cuil: agente.CUIL ?? '',
+          fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
+          secretaria: agente.SECRETARIA ?? '',
+          programa: agente.PROGRAMA ?? '',
+          cargo: agente.CARGO ?? '',
+          antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
+          antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
         })
       }
     }
@@ -735,4 +734,36 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
   }
 }
 
+/**
+ * Devuelve los datos completos de agentes por lista de DNIs.
+ * Usado para generar el informe Excel desde el widget de próximas jubilaciones.
+ * No recalcula ninguna fecha: usa los campos persistidos de la DB.
+ */
+export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilacion[]> {
+  if (!dnis || dnis.length === 0) return []
+  try {
+    const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
+      where: {
+        DNI_AGENTE: { in: dnis },
+      },
+    })
 
+    return agentes.map((agente) => {
+      return {
+        dni: agente.DNI_AGENTE,
+        apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+        fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
+        cuil: agente.CUIL ?? '',
+        fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
+        secretaria: agente.SECRETARIA ?? '',
+        programa: agente.PROGRAMA ?? '',
+        cargo: agente.CARGO ?? '',
+        antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
+        antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
+      }
+    })
+  } catch (error) {
+    console.error('[getAgentesData] Error:', error)
+    return []
+  }
+}

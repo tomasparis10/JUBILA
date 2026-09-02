@@ -70,20 +70,6 @@ function FormNuevoAgente() {
 
   const handleFechaNac = (v: string) => {
     update('fechaNacimiento', v)
-    if (v.length === 10) {
-      const parts = v.split('/')
-      if (parts.length === 3) {
-        const [dd, mm, yyyy] = parts
-        const d = new Date(`${yyyy}-${mm}-${dd}`)
-        if (!isNaN(d.getTime())) {
-          const hoy = new Date()
-          let edad = hoy.getFullYear() - d.getFullYear()
-          const m = hoy.getMonth() - d.getMonth()
-          if (m < 0 || (m === 0 && hoy.getDate() < d.getDate())) edad--
-          update('edadActual', String(edad))
-        }
-      }
-    }
   }
 
   const handleReset = () => {
