@@ -57,7 +57,7 @@ function getRecordDiffs(initial: JubilacionRecord | null, current: JubilacionRec
   if (initial.beneficio !== current.beneficio) {
     const oldLabel = BENEFICIO_OPTIONS.find((b) => b.value === initial.beneficio)?.label ?? initial.beneficio
     const newLabel = BENEFICIO_OPTIONS.find((b) => b.value === current.beneficio)?.label ?? current.beneficio
-    diffs.push({ section: 'INFORMACIÓN LABORAL', label: 'Beneficio', oldVal: oldLabel, newVal: newLabel })
+    diffs.push({ section: 'INFORMACIÓN LABORAL', label: 'Causa de Baja', oldVal: oldLabel, newVal: newLabel })
   }
   check('INFORMACIÓN LABORAL', 'Número de Trámite', 'nroTramite')
   check('INFORMACIÓN LABORAL', 'Fecha Baja', 'fBaja')
@@ -70,10 +70,10 @@ function getRecordDiffs(initial: JubilacionRecord | null, current: JubilacionRec
   current.renovaciones.forEach((rv, i) => {
     const oldRv = initial.renovaciones[i] || { nroResRenov: '', nroExpMun: '', fechaDesdeExp: '', fechaHastaExp: '', nroDcto: '' }
     if (oldRv.nroResRenov !== rv.nroResRenov) {
-      diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} Pase a Repartición`, oldVal: oldRv.nroResRenov || '(vacío)', newVal: rv.nroResRenov || '(vacío)' })
+      diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} Número Resolución Caja`, oldVal: oldRv.nroResRenov || '(vacío)', newVal: rv.nroResRenov || '(vacío)' })
     }
     if (oldRv.nroExpMun !== rv.nroExpMun) {
-      diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} N.º Expte. Municipal`, oldVal: oldRv.nroExpMun || '(vacío)', newVal: rv.nroExpMun || '(vacío)' })
+      diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} N.º Expte. Mun. Renuncia. Prov`, oldVal: oldRv.nroExpMun || '(vacío)', newVal: rv.nroExpMun || '(vacío)' })
     }
     if (oldRv.fechaDesdeExp !== rv.fechaDesdeExp) {
       diffs.push({ section: 'OTORGAMIENTO Y RENOVACIÓN PROVISORIAS', label: `Fila #${i + 1} Fecha Desde`, oldVal: oldRv.fechaDesdeExp || '(vacío)', newVal: rv.fechaDesdeExp || '(vacío)' })
@@ -463,7 +463,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-[#1e3a8a] rounded-t-xl">
                 <div className="flex items-center gap-2">
                   <GitBranch className="w-4 h-4 text-white" />
-                  <h3 className="text-sm font-bold text-white">Trazabilidad de Beneficios</h3>
+                  <h3 className="text-sm font-bold text-white">Trazabilidad de Causas de Baja</h3>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-blue-200 font-mono">{selected.apellidoNombres} — DNI {selected.dni}</span>
@@ -1043,7 +1043,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                   {/* Beneficio + Nro Tramite en primera fila */}
                   <SelectField
-                    label="Beneficio"
+                    label="Causa de Baja"
                     value={selected.beneficio}
                     onChange={(v) => update('beneficio', v)}
                     options={BENEFICIO_OPTIONS}
@@ -1127,7 +1127,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50">
-                          {['#', 'Pase a Repartición', 'N.º Expte. Municipal de Renuncia', 'Fecha Desde Provisoria', 'Fecha Hasta Provisoria', 'N.º de Decreto/Resolución Municipal'].map((h) => (
+                          {['#', 'Número Resolución Caja', 'N.º Expte. Mun. Renuncia. Prov', 'Fecha Desde Provisoria', 'Fecha Hasta Provisoria', 'N.º de Decreto/Resolución Municipal'].map((h) => (
                             <th
                               key={h}
                               className="text-left px-2 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap"

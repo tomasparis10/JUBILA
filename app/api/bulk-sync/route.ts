@@ -487,25 +487,17 @@ async function processCarreraAdministrativa() {
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST() {
   try {
-    const [dpResult, caResult] = await Promise.allSettled([
-      processDatosPersonales(),
-      processCarreraAdministrativa(),
-    ])
+    // Ejecución secuencial para evitar contención en el pool y bloqueos de DB
+    const dpData = await processDatosPersonales()
+    const caData = await processCarreraAdministrativa()
     const lastUpdated = nowStr()
-    const dpData = dpResult.status === 'fulfilled'
-      ? dpResult.value
-      : { nuevos: [], actualizados: [], sinCambios: 0, errores: 1, errorDetails: [String((dpResult as PromiseRejectedResult).reason)], dnisAfectados: [] }
-    const caData = caResult.status === 'fulfilled'
-      ? caResult.value
-      : { nuevas: [], actualizadas: [], sinCambios: 0, errores: 1, errorDetails: [String((caResult as PromiseRejectedResult).reason)] }
 
     // Recalcular antigüedades para agentes afectados solo por DatosPersonales
     // (los afectados por Carrera ya se recalcularon dentro de processCarreraAdministrativa)
-    const carreraDnis = new Set(
-      caResult.status === 'fulfilled'
-        ? caResult.value.nuevas.map(c => c.dni).concat(caResult.value.actualizadas.map(c => c.dni))
-        : []
-    )
+    const carreraDnis = new Set([
+      ...caData.nuevas.map((c) => c.dni),
+      ...caData.actualizadas.map((c) => c.dni),
+    ])
     for (const dni of dpData.dnisAfectados) {
       if (!carreraDnis.has(dni)) {
         try {

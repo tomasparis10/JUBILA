@@ -98,13 +98,13 @@ export const BOTONES_POR_BENEFICIO: Record<string, BtnExtra[]> = {
   '4':  [ { label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' } ],
   '5':  [ { label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' } ],
   '6':  [],
-  '7':  [
+  '7':  [],
+  '8':  [],
+  '9':  [
     { label: 'Impresión de Formulario de Solicitud', icon: 'file-text' },
     { label: 'Formulario de Aceptación y Rechazo', icon: 'check-square' },
     { label: 'Pase a Secretaría', icon: 'send' },
   ],
-  '8':  [],
-  '9':  [],
   '10': [ { label: 'Pase al Archivo', icon: 'archive' } ],
   '11': [ { label: 'Pase al Archivo', icon: 'archive' } ],
   '12': [],

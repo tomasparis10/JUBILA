@@ -209,63 +209,95 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
 // ── Server Actions ────────────────────────────────────────────────────────────
 
 /**
- * Busca agentes por DNI o nombre (apellido + nombre).
- * Retorna una lista de registros que coincidan.
+ * Busca agentes por DNI o apellido con prioridad:
+ * - Si el query es numérico (DNI):
+ *     1ro busca coincidencia exacta de DNI
+ *     2do busca DNIs que empiecen con el query
+ * - Si el query es texto (apellido):
+ *     1ro busca coincidencia exacta de APELLIDO_AGENTE
+ *     2do busca apellidos que empiecen con el query
+ * Los resultados exactos siempre aparecen primero.
  */
 export async function searchAgentes(query: string): Promise<JubilacionRecord[]> {
   const q = query.trim()
   if (!q) return []
 
-  try {
-    // Buscar agentes cuyo DNI o nombre/apellido coincida
-    const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
-      where: {
-        OR: [
-          { DNI_AGENTE: { contains: q } },
-          { NOMBRE_AGENTE: { contains: q } },
-          { APELLIDO_AGENTE: { contains: q } },
-        ],
-      },
+  // Helper para mapear un agente (con sus includes) a JubilacionRecord
+  const includeClause = {
+    JUBILA: {
+      where: { BIT_BORRADO: false },
+      orderBy: { FECHA_INICIO_CREACION_JUBILA: 'desc' as const },
+      take: 1,
       include: {
-        JUBILA: {
-          where: { BIT_BORRADO: false },
-          orderBy: { FECHA_INICIO_CREACION_JUBILA: 'desc' },
-          take: 1,
-          include: {
-            HISTORIAL_BENEFICIO: {
-              include: { BENEFICIO: true },
-              orderBy: { FECHA_INICIO_BENEFICIO: 'asc' },
-            },
-            OTORGAMIENTO_RENOVACION_PROVISORIAS: {
-              orderBy: { ID_OTORGAMIENTO_RENOVACION_PROVISORIAS: 'asc' },
-            },
-          },
+        HISTORIAL_BENEFICIO: {
+          include: { BENEFICIO: true },
+          orderBy: { FECHA_INICIO_BENEFICIO: 'asc' as const },
         },
-        REGIMEN_JUBILATORIO: true,
-        CARRERA_ADMINISTRATIVA: {
-          orderBy: { FECHA_ALTA: 'asc' },
+        OTORGAMIENTO_RENOVACION_PROVISORIAS: {
+          orderBy: { ID_OTORGAMIENTO_RENOVACION_PROVISORIAS: 'asc' as const },
         },
       },
-      take: 50,
-    })
+    },
+    REGIMEN_JUBILATORIO: true as const,
+    CARRERA_ADMINISTRATIVA: {
+      orderBy: { FECHA_ALTA: 'asc' as const },
+    },
+  }
 
+  function toRecords(agentes: Awaited<ReturnType<typeof prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany<{ include: typeof includeClause }>>>): JubilacionRecord[] {
     const records: JubilacionRecord[] = []
     for (const agente of agentes) {
       const { JUBILA: jubilaList, ...agenteRest } = agente
       const jubila = jubilaList[0]
-
       if (jubila) {
-        // Agente con jubilación registrada — mapeo completo
-        records.push(mapJubilaToRecord({
-          ...jubila,
-          DATOS_PERSONALES_AGENTE_JUBILA: agenteRest,
-        }))
+        records.push(mapJubilaToRecord({ ...jubila, DATOS_PERSONALES_AGENTE_JUBILA: agenteRest }))
       } else {
-        // Agente sin jubilación aún — mostrar solo datos personales con campos vacíos
         records.push(mapAgenteToRecord(agenteRest))
       }
     }
     return records
+  }
+
+  try {
+    const isNumeric = /^\d+$/.test(q)
+
+    if (isNumeric) {
+      // ── Búsqueda por DNI ──────────────────────────────────────────────────
+      // 1º Coincidencia exacta
+      const exactos = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
+        where: { DNI_AGENTE: q },
+        include: includeClause,
+        take: 50,
+      })
+      if (exactos.length > 0) return toRecords(exactos)
+
+      // 2º DNIs que empiecen con el número ingresado
+      const parciales = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
+        where: { DNI_AGENTE: { startsWith: q } },
+        include: includeClause,
+        orderBy: { DNI_AGENTE: 'asc' },
+        take: 50,
+      })
+      return toRecords(parciales)
+    } else {
+      // ── Búsqueda por Apellido ─────────────────────────────────────────────
+      // 1º Coincidencia exacta de apellido (case-insensitive via contains con q exacto)
+      const exactos = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
+        where: { APELLIDO_AGENTE: q },
+        include: includeClause,
+        take: 50,
+      })
+      if (exactos.length > 0) return toRecords(exactos)
+
+      // 2º Apellidos que empiecen con el texto ingresado
+      const parciales = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
+        where: { APELLIDO_AGENTE: { startsWith: q } },
+        include: includeClause,
+        orderBy: { APELLIDO_AGENTE: 'asc' },
+        take: 50,
+      })
+      return toRecords(parciales)
+    }
   } catch (error) {
     console.error('[searchAgentes] Error:', error)
     throw new Error('Error al buscar agentes en la base de datos.')
@@ -685,49 +717,42 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
     const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
       where: {
         ESTADO_ACTIVO: true,
-        ID_REGIMEN_JUBILATORIO: { not: undefined },
+        FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: {
+          gte: hace30Dias,
+          lte: en30Dias,
+        },
       },
+      select: {
+        DNI_AGENTE: true,
+        NOMBRE_AGENTE: true,
+        APELLIDO_AGENTE: true,
+        FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: true,
+        CUIL: true,
+        FECHA_NACIMIENTO: true,
+        SECRETARIA: true,
+        PROGRAMA: true,
+        CARGO: true,
+        ANTIGUEDAD_RECIBO_CALC: true,
+        ANTIGUEDAD_LICENCIAS_CALC: true,
+      },
+      orderBy: {
+        FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: 'asc',
+      },
+      take: 100,
     })
 
-    const resultado: AgenteProxJubilacion[] = []
-
-    for (const agente of agentes) {
-      // Fecha estimada leída de la DB (calculada en la masiva)
-      if (!agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA) continue
-      const fechaJub = new Date(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA)
-
-      // Filtrar los que jubilan dentro del rango ±30 días
-      if (fechaJub >= hace30Dias && fechaJub <= en30Dias) {
-        const d = new Date(fechaJub)
-        const dd = String(d.getUTCDate()).padStart(2, '0')
-        const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
-        const yyyy = d.getUTCFullYear()
-
-        resultado.push({
-          dni: agente.DNI_AGENTE,
-          apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
-          fechaEstimada: `${dd}/${mm}/${yyyy}`,
-          cuil: agente.CUIL ?? '',
-          fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
-          secretaria: agente.SECRETARIA ?? '',
-          programa: agente.PROGRAMA ?? '',
-          cargo: agente.CARGO ?? '',
-          antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
-          antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
-        })
-      }
-    }
-
-    // Ordenar por fecha estimada ascendente
-    resultado.sort((a, b) => {
-      const toMs = (s: string) => {
-        const [dd, mm, yyyy] = s.split('/')
-        return new Date(`${yyyy}-${mm}-${dd}`).getTime()
-      }
-      return toMs(a.fechaEstimada) - toMs(b.fechaEstimada)
-    })
-
-    return resultado
+    return agentes.map((agente) => ({
+      dni: agente.DNI_AGENTE,
+      apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+      fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
+      cuil: agente.CUIL ?? '',
+      fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
+      secretaria: agente.SECRETARIA ?? '',
+      programa: agente.PROGRAMA ?? '',
+      cargo: agente.CARGO ?? '',
+      antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
+      antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
+    }))
   } catch (error) {
     console.error('[getAgentesProxJubilacion] Error:', error)
     return []
@@ -746,22 +771,33 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
       where: {
         DNI_AGENTE: { in: dnis },
       },
+      select: {
+        DNI_AGENTE: true,
+        NOMBRE_AGENTE: true,
+        APELLIDO_AGENTE: true,
+        FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: true,
+        CUIL: true,
+        FECHA_NACIMIENTO: true,
+        SECRETARIA: true,
+        PROGRAMA: true,
+        CARGO: true,
+        ANTIGUEDAD_RECIBO_CALC: true,
+        ANTIGUEDAD_LICENCIAS_CALC: true,
+      },
     })
 
-    return agentes.map((agente) => {
-      return {
-        dni: agente.DNI_AGENTE,
-        apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
-        fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
-        cuil: agente.CUIL ?? '',
-        fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
-        secretaria: agente.SECRETARIA ?? '',
-        programa: agente.PROGRAMA ?? '',
-        cargo: agente.CARGO ?? '',
-        antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
-        antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
-      }
-    })
+    return agentes.map((agente) => ({
+      dni: agente.DNI_AGENTE,
+      apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+      fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
+      cuil: agente.CUIL ?? '',
+      fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
+      secretaria: agente.SECRETARIA ?? '',
+      programa: agente.PROGRAMA ?? '',
+      cargo: agente.CARGO ?? '',
+      antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
+      antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
+    }))
   } catch (error) {
     console.error('[getAgentesData] Error:', error)
     return []

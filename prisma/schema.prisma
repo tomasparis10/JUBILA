@@ -39,14 +39,14 @@ model DATOS_PERSONALES_AGENTE_JUBILA {
   SEXO                                String?              @db.VarChar(50)
   ANTIGUEDAD_RECIBO                   DateTime?            @db.Date
   ANTIGUEDAD_LICENCIAS                DateTime?            @db.Date
-  ANTIGUEDAD_RECIBO_CALC              String?              @db.VarChar(200)
-  ANTIGUEDAD_LICENCIAS_CALC           String?              @db.VarChar(200)
   FECHA_ESTIMADA_JUBILACI_N_ORDINARIA DateTime?            @map("FECHA_ESTIMADA_JUBILACIÓN_ORDINARIA") @db.Date
   EDAD_ESTIMACION_JUBILACION          Int?
   ESTADO_ACTIVO                       Boolean              @default(true, map: "DF__DATOS_PER__ESTAD__0D7A0286")
   CUIL                                String?              @db.VarChar(20)
   NUMERO_TELEFONO                     String?              @db.VarChar(50)
   CORREO_ELECTRONICO                  String?              @db.VarChar(255)
+  ANTIGUEDAD_LICENCIAS_CALC           String?              @db.VarChar(200)
+  ANTIGUEDAD_RECIBO_CALC              String?              @db.VarChar(200)
   REGIMEN_JUBILATORIO                 REGIMEN_JUBILATORIO? @relation(fields: [ID_REGIMEN_JUBILATORIO], references: [ID_REGIMEN_JUBILATORIO], onDelete: NoAction, onUpdate: NoAction, map: "fk_AGENTE_REGIMEN")
   JUBILA                              JUBILA[]
   CARRERA_ADMINISTRATIVA              CARRERA_ADMINISTRATIVA[]
@@ -146,13 +146,13 @@ model USUARIO {
 }
 
 model CARRERA_ADMINISTRATIVA {
-  ID_CARRERA         Int                            @id(map: "PK__CARRERA___FAB78CADC0AC7DEA") @default(autoincrement())
-  DOCUMENTO_EMPLEADO String                         @db.VarChar(20)
-  FECHA_ALTA         DateTime?                      @db.DateTime
-  FECHA_BAJA         DateTime?                      @db.DateTime
-  CAUSA_BAJA         String?                        @db.VarChar(255)
-  FECHA_CREACION     DateTime?                      @default(now(), map: "DF__CARRERA_A__FECHA__2FCF1A8A") @db.DateTime
-  DATOS_PERSONALES_AGENTE_JUBILA DATOS_PERSONALES_AGENTE_JUBILA @relation(fields: [DOCUMENTO_EMPLEADO], references: [DNI_AGENTE], onDelete: NoAction, onUpdate: NoAction)
+  ID_CARRERA         Int       @id(map: "PK__CARRERA___FAB78CADC0AC7DEA") @default(autoincrement())
+  DOCUMENTO_EMPLEADO String    @db.VarChar(20)
+  FECHA_ALTA         DateTime? @db.DateTime
+  FECHA_BAJA         DateTime? @db.DateTime
+  CAUSA_BAJA         String?   @db.VarChar(255)
+  FECHA_CREACION     DateTime? @default(now(), map: "DF__CARRERA_A__FECHA__2FCF1A8A") @db.DateTime
+  DATOS_PERSONALES_AGENTE_JUBILA DATOS_PERSONALES_AGENTE_JUBILA? @relation(fields: [DOCUMENTO_EMPLEADO], references: [DNI_AGENTE], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([DOCUMENTO_EMPLEADO], map: "IX_CARRERA_ADMINISTRATIVA_DOCUMENTO")
 }
