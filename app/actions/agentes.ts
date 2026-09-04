@@ -116,7 +116,7 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
   return {
     id: String(j.ID_JUBILA),
     cuil: agente.CUIL ?? '',
-    dni: agente.DNI_AGENTE,
+    dni: agente.DNI_AGENTE ?? '',
     apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
     estadoActivo: agente.ESTADO_ACTIVO,
     trazabilidad,
@@ -179,7 +179,7 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
   return {
     id: `agente-${agente.ID_DATOS_PERSONALES_AGENTE_JUBILA}`,
     cuil: agente.CUIL ?? '',
-    dni: agente.DNI_AGENTE,
+    dni: agente.DNI_AGENTE ?? '',
     apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
     estadoActivo: agente.ESTADO_ACTIVO,
     trazabilidad: [],
@@ -742,7 +742,7 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
     })
 
     return agentes.map((agente) => ({
-      dni: agente.DNI_AGENTE,
+      dni: agente.DNI_AGENTE ?? '',
       apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
       fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
       cuil: agente.CUIL ?? '',
@@ -787,7 +787,7 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
     })
 
     return agentes.map((agente) => ({
-      dni: agente.DNI_AGENTE,
+      dni: agente.DNI_AGENTE ?? '',
       apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
       fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
       cuil: agente.CUIL ?? '',
