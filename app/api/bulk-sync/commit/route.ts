@@ -7,7 +7,7 @@
  * GARANTÍAS:
  * - Todo o nada: si falla alguna operación → ROLLBACK automático
  * - NO borra registros
- * - NO sobreescribe campos calculados (ANTIGUEDAD_*, FECHA_ESTIMADA_*, EDAD_*)
+ * - Recalcula y persiste los campos derivados para todos los agentes
  * - Ejecuta primero Datos Personales, luego Carrera Administrativa
  *
  * Método: POST
@@ -82,9 +82,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
     let caSinCambios = ca.sinCambios
     let caErrores = 0
 
-    // DNIs que necesitan recálculo de campos derivados post-commit
-    const dnisParaRecalculo = new Set<string>()
-
     // ── Transacción principal ───────────────────────────────────────────────
     await prisma.$transaction(
       async (tx) => {
@@ -132,13 +129,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
             },
           })
           dpInsertados++
-          if (row.dni) dnisParaRecalculo.add(row.dni)
         }
 
         // ────────────────────────────────────────────────────────────────────
         // PASO 2: Actualizar agentes existentes en DATOS_PERSONALES_AGENTE_JUBILA
-        // NUNCA tocar: ANTIGUEDAD_RECIBO, ANTIGUEDAD_LICENCIAS,
-        //              FECHA_ESTIMADA_JUBILACIÓN_ORDINARIA, EDAD_ESTIMACION_JUBILACION
+        // Los campos derivados se recalculan para todos al finalizar la carga.
         // ────────────────────────────────────────────────────────────────────
         for (const row of dp.actualizadas) {
           const fechaNac = new Date(row.payload.FECHA_NACIMIENTO)
@@ -187,7 +182,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
             },
           })
           dpActualizados++
-          dnisParaRecalculo.add(row.dni)
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -204,7 +198,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
             },
           })
           caInsertadas++
-          dnisParaRecalculo.add(row.dni)
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -222,7 +215,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
             },
           })
           caActualizadas++
-          dnisParaRecalculo.add(row.dni)
         }
       },
       {
@@ -230,15 +222,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
       },
     )
 
-    // ── Post-commit: recalcular antigüedades fuera de la transacción ─────────
-    // Esto es best-effort: si falla, no revierte los datos escritos
-    for (const dni of dnisParaRecalculo) {
-      try {
-        await recalcularAntiguedades(dni)
-      } catch {
-        // No interrumpir: los datos principales ya están guardados
-      }
-    }
+    // ── Post-commit: recalcular y persistir derivados para TODOS ─────────────
+    // Se ejecuta después de insertar las fases para que la antigüedad incluya
+    // también las nuevas carreras de esta importación.
+    await recalcularDerivadosDeTodosLosAgentes()
 
     return NextResponse.json({
       ok: true,
@@ -272,35 +259,40 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: recalcular ANTIGUEDAD_RECIBO_CALC y ANTIGUEDAD_LICENCIAS_CALC
+// Helpers: recalcular y persistir todos los campos derivados
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function recalcularAntiguedades(dni: string): Promise<void> {
-  const agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
-    where: { DNI_AGENTE: dni },
+async function recalcularDerivadosDeTodosLosAgentes(): Promise<void> {
+  const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
     include: {
+      REGIMEN_JUBILATORIO: true,
       CARRERA_ADMINISTRATIVA: { orderBy: { FECHA_ALTA: 'asc' } },
     },
   })
-  if (!agente) return
 
-  const fases: FaseCarrera[] = (agente.CARRERA_ADMINISTRATIVA ?? []).map((f) => ({
-    FECHA_ALTA: f.FECHA_ALTA,
-    FECHA_BAJA: f.FECHA_BAJA,
-  }))
+  for (const agente of agentes) {
+    const fechaNacimiento = new Date(agente.FECHA_NACIMIENTO)
+    const edadActual = calcEdadActual(fechaNacimiento)
+    const fechaEstimada = agente.REGIMEN_JUBILATORIO
+      ? calcFechaEstimada(fechaNacimiento, agente.REGIMEN_JUBILATORIO.EDAD_REQUERIDA)
+      : null
 
-  const fechaJubilacion = agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA
-    ? new Date(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA)
-    : null
+    const fases: FaseCarrera[] = (agente.CARRERA_ADMINISTRATIVA ?? []).map((f) => ({
+      FECHA_ALTA: f.FECHA_ALTA,
+      FECHA_BAJA: f.FECHA_BAJA,
+    }))
 
-  const antiguedadRecibo = calcAntiguedadRecibo(fases, fechaJubilacion)
-  const antiguedadLicencias = calcAntiguedadLicencias(fases, fechaJubilacion)
+    const antiguedadRecibo = calcAntiguedadRecibo(fases, fechaEstimada)
+    const antiguedadLicencias = calcAntiguedadLicencias(fases, fechaEstimada)
 
-  await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
-    where: { DNI_AGENTE: dni },
-    data: {
-      ANTIGUEDAD_RECIBO_CALC: antiguedadRecibo,
-      ANTIGUEDAD_LICENCIAS_CALC: antiguedadLicencias,
-    },
-  })
+    await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
+      where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA },
+      data: {
+        FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
+        EDAD_ESTIMACION_JUBILACION: edadActual,
+        ANTIGUEDAD_RECIBO_CALC: antiguedadRecibo,
+        ANTIGUEDAD_LICENCIAS_CALC: antiguedadLicencias,
+      },
+    })
+  }
 }

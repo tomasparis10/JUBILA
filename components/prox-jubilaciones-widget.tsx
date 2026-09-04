@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Clock, AlertTriangle, Loader2, UserCircle, FileDown, CheckSquare } from 'lucide-react'
 import { getAgentesProxJubilacion, getAgentesData, type AgenteProxJubilacion } from '@/app/actions/agentes'
 
@@ -14,25 +14,25 @@ export default function ProxJubilacionesWidget({ onAgenteClick }: ProxJubilacion
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      try {
-        const data = await getAgentesProxJubilacion()
-        if (!cancelled) {
-          setAgentes(data)
-          setChecked(new Set()) // reset selection on reload
-        }
-      } catch {
-        if (!cancelled) setAgentes([])
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+  const loadAgentes = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await getAgentesProxJubilacion()
+      setAgentes(data)
+      setChecked(new Set())
+    } catch {
+      setAgentes([])
+    } finally {
+      setLoading(false)
     }
-    load()
-    return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    void loadAgentes()
+    const handleBulkSyncCompleted = () => { void loadAgentes() }
+    window.addEventListener('bulk-sync-completed', handleBulkSyncCompleted)
+    return () => window.removeEventListener('bulk-sync-completed', handleBulkSyncCompleted)
+  }, [loadAgentes])
 
   const toggleCheck = (dni: string) => {
     setChecked((prev) => {

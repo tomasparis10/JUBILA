@@ -713,6 +713,8 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
     hace30Dias.setDate(hoy.getDate() - 30)
     const en30Dias = new Date(hoy)
     en30Dias.setDate(hoy.getDate() + 30)
+    hace30Dias.setUTCHours(0, 0, 0, 0)
+    en30Dias.setUTCHours(23, 59, 59, 999)
 
     const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
       where: {

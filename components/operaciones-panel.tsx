@@ -497,6 +497,7 @@ function ActualizacionMasiva() {
 
       setCommitResult(data)
       setFlowState('done')
+      window.dispatchEvent(new Event('bulk-sync-completed'))
     } catch {
       setErrorMsg('Error inesperado al conectar con el servidor.')
       setFlowState('error')

@@ -42,8 +42,8 @@ export function formatDias(totalDias: number): string {
 function difEnDias(inicio: Date, fin: Date): number {
   const MS_POR_DIA = 1000 * 60 * 60 * 24
   // Normalizar a medianoche UTC para evitar problemas de DST
-  const iniMs = Date.UTC(inicio.getFullYear(), inicio.getMonth(), inicio.getDate())
-  const finMs = Date.UTC(fin.getFullYear(), fin.getMonth(), fin.getDate())
+  const iniMs = Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth(), inicio.getUTCDate())
+  const finMs = Date.UTC(fin.getUTCFullYear(), fin.getUTCMonth(), fin.getUTCDate())
   return Math.max(0, Math.floor((finMs - iniMs) / MS_POR_DIA))
 }
 
