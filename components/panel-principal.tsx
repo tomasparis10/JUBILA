@@ -14,13 +14,42 @@ import {
   type TrazabilidadEntry,
 } from '@/lib/jubilaciones-data'
 import { FormField, SelectField, SectionCard } from '@/components/form-field'
-import { formatExpediente, formatDate, formatCuil, extractDniFromCuil } from '@/lib/format-utils'
+import { formatExpediente, formatDate, formatCuil, extractDniFromCuil, getDateValidationError } from '@/lib/format-utils'
 import { searchAgentes, updateJubila, createJubila, createAgente, getLastRecord } from '@/app/actions/agentes'
 import { GestorArchivos } from '@/components/gestor-archivos'
+import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud } from '@/components/pdf/PAVForms'
 
 // Normalize a string: lowercase + remove diacritics
 function normalize(str: string): string {
   return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
+// Helper para validar todas las fechas cargadas de un registro
+function getRecordDateErrors(record: JubilacionRecord): { label: string; error: string }[] {
+  const errors: { label: string; error: string }[] = []
+
+  const check = (val: string | undefined, label: string) => {
+    if (!val || !val.trim()) return // Solo valida si se cargó la fecha
+    const err = getDateValidationError(val, true)
+    if (err) {
+      errors.push({ label, error: err })
+    }
+  }
+
+  check(record.fechaNacimiento, 'Fecha de Nacimiento')
+  check(record.fBaja, 'Fecha Baja (Información Laboral)')
+  check(record.fSolicitud, 'Fecha de Solicitud (Pasividad)')
+  check(record.fEstimadaJOrd, 'Fecha Estimada Jubilación Ordinaria (Pasividad)')
+  check(record.fFirmaConvenio, 'Fecha Firma Convenio (Pasividad)')
+  check(record.fInicioPasividad, 'Fecha Inicio Pasividad (Pasividad)')
+  check(record.notificacionArt43, 'Notificación Artículo 43')
+
+  record.renovaciones?.forEach((rv, idx) => {
+    check(rv.fechaDesdeExp, `Renovación #${idx + 1} - Fecha Desde`)
+    check(rv.fechaHastaExp, `Renovación #${idx + 1} - Fecha Hasta`)
+  })
+
+  return errors
 }
 
 // Render an icon by name string
@@ -130,6 +159,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
   const [loadingRecord, setLoadingRecord] = useState(false)
   const [savingRecord, setSavingRecord]   = useState(false)
   const [globalError, setGlobalError]     = useState<string | null>(null)
+  const [forceTouchedDateErrors, setForceTouchedDateErrors] = useState(false)
 
   // ── Modal Gestionar Archivos ─────────────────────────────────────────────
   const [showArchivos, setShowArchivos]       = useState(false)
@@ -243,6 +273,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     setEditing(false)
     setIsCreatingNew(false)
     setInitialSnapshot(null)
+    setForceTouchedDateErrors(false)
     setTimeout(
       () => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
       50
@@ -288,6 +319,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     setSelectedId(newId)
     setIsCreatingNew(true)
     setEditing(true)
+    setForceTouchedDateErrors(false)
   }
 
   const handleStartEdit = () => {
@@ -295,6 +327,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       setInitialSnapshot(JSON.parse(JSON.stringify(selected)))
       setIsCreatingNew(false)
       setEditing(true)
+      setForceTouchedDateErrors(false)
     }
   }
 
@@ -308,16 +341,29 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     setEditing(false)
     setIsCreatingNew(false)
     setInitialSnapshot(null)
+    setForceTouchedDateErrors(false)
   }
 
   const handleToggleEdit = () => {
     if (editing) {
+      if (selected) {
+        const dateErrors = getRecordDateErrors(selected)
+        if (dateErrors.length > 0) {
+          setForceTouchedDateErrors(true)
+          const errorList = dateErrors.map((e) => `• ${e.label}: ${e.error}`).join('\n')
+          alert(
+            `No se pueden guardar los cambios porque hay fechas con formato incorrecto o incompletas:\n\n${errorList}\n\nPor favor revise los campos señalados en rojo.`
+          )
+          return
+        }
+      }
       if (isCreatingNew) {
         setShowConfirmPopup(true)
       } else {
         setShowEditConfirmPopup(true)
       }
     } else {
+      setForceTouchedDateErrors(false)
       handleStartEdit()
     }
   }
@@ -338,6 +384,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
         setEditing(false)
         setIsCreatingNew(false)
         setInitialSnapshot(null)
+        setForceTouchedDateErrors(false)
         setShowSuccessPopup(true)
       } else {
         setGlobalError(result.error ?? 'Error al guardar el agente.')
@@ -394,6 +441,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
         setEditing(false)
         setIsCreatingNew(false)
         setInitialSnapshot(null)
+        setForceTouchedDateErrors(false)
         setShowEditSuccessPopup(true)
       } else {
         setGlobalError(errorMsg ?? 'Error al guardar los cambios.')
@@ -419,6 +467,82 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
   // Otorgamiento y Renovaciones siempre visible cuando hay registro seleccionado
   const showRenovaciones = true
   const extraBtns: BtnExtra[] = selected ? (BOTONES_POR_BENEFICIO[selected.beneficio] ?? []) : []
+
+  // ── Generación de PDFs PAV ───────────────────────────────────────────────
+  const [loadingPAV, setLoadingPAV] = useState<string | null>(null)
+
+  const handlePAVGenerate = async (action: string) => {
+    if (!selected) return
+
+    // Validar datos requeridos según el formulario
+    const missing: string[] = []
+    if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
+    if (!selected.dni?.trim()) missing.push('• DNI')
+    if (!selected.nroExpPasividad?.trim()) missing.push('• Número Expediente Pasividad')
+    if (!selected.fSolicitud?.trim()) missing.push('• Fecha Solicitud de Pasividad')
+
+    if (action === 'pav-aceptacion') {
+      if (!selected.cargo?.trim()) missing.push('• Cargo')
+      if (!selected.programa?.trim()) missing.push('• Repartición / Programa')
+    } else if (action === 'pav-pase') {
+      if (!selected.secretaria?.trim()) missing.push('• Secretaría')
+      if (!selected.cargo?.trim()) missing.push('• Cargo')
+    }
+
+    // Validar si la fecha de solicitud tiene un formato inválido
+    if (selected.fSolicitud?.trim()) {
+      const dateErr = getDateValidationError(selected.fSolicitud, true)
+      if (dateErr) {
+        missing.push(`• Fecha Solicitud de Pasividad (${dateErr})`)
+      }
+    }
+
+    if (missing.length > 0) {
+      alert(`Faltan datos requeridos para generar este formulario:\n\n${missing.join('\n')}\n\nPor favor complete los campos antes de generar el PDF.`)
+      return
+    }
+
+    setLoadingPAV(action)
+    try {
+      const { pdf } = await import('@react-pdf/renderer')
+      const pavData = {
+        nombreCompleto: selected.apellidoNombres,
+        dni: selected.dni,
+        cargo: selected.cargo,
+        programa: selected.programa,
+        secretaria: selected.secretaria,
+        nroExpPasividad: selected.nroExpPasividad,
+        fSolicitud: selected.fSolicitud,
+      }
+      let doc: React.ReactElement
+      let filename = ''
+      if (action === 'pav-solicitud') {
+        doc = <PavSolicitud data={pavData} />
+        filename = `PAV_Solicitud_${selected.dni}.pdf`
+      } else if (action === 'pav-aceptacion') {
+        doc = <PavAceptacionRechazo data={pavData} />
+        filename = `PAV_Aceptacion_${selected.dni}.pdf`
+      } else {
+        doc = <PavPaseSecretaria data={pavData} />
+        filename = `PAV_PaseSecretaria_${selected.dni}.pdf`
+      }
+      const blob = await pdf(doc as any).toBlob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      alert('¡Formulario generado y descargado con éxito en formato PDF!')
+    } catch (err) {
+      console.error('Error generating PDF:', err)
+      alert('Hubo un error al generar el PDF. Por favor intente nuevamente.')
+    } finally {
+      setLoadingPAV(null)
+    }
+  }
 
   return (
     <div>
@@ -1017,6 +1141,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                     placeholder="dd/mm/aaaa"
                     mask="date"
                     readOnly={roAgente}
+                    forceTouched={forceTouchedDateErrors}
                   />
                   {/* 12. Edad Actual */}
                   <FormField
@@ -1063,6 +1188,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                     onChange={(v) => update('fBaja', v)}
                     placeholder="dd/mm/aaaa"
                     readOnly={roJubila}
+                    forceTouched={forceTouchedDateErrors}
                   />
                   <FormField
                     label="Nº Exp. Mun. Renuncia"
@@ -1111,13 +1237,19 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                     <button
                       key={btn.label}
                       type="button"
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-[#1e3a8a] hover:bg-[#172554] text-white transition"
+                      disabled={btn.action ? loadingPAV !== null : false}
+                      onClick={btn.action ? () => handlePAVGenerate(btn.action!) : undefined}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-[#1e3a8a] hover:bg-[#172554] text-white transition disabled:opacity-50"
                     >
-                      <BtnIcon name={btn.icon} />
+                      {btn.action && loadingPAV === btn.action
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : <BtnIcon name={btn.icon} />}
                       {btn.label}
                     </button>
                   ))}
                 </div>
+
+
               </SectionCard>
 
               {/* ── Card 3: Otorgamiento y Renovaciones (solo Invalidez Provisoria) */}
@@ -1143,35 +1275,49 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                             <td className="px-2 py-1.5 text-slate-400 font-medium">{i + 1}</td>
                             {(
                               ['nroResRenov', 'nroExpMun', 'fechaDesdeExp', 'fechaHastaExp', 'nroDcto'] as const
-                            ).map((field) => (
-                              <td key={field} className="px-1 py-1">
-                                <input
-                                  type="text"
-                                  value={rv[field]}
-                                  onChange={(e) => {
-                                    let val = e.target.value
-                                    if (field === 'fechaDesdeExp' || field === 'fechaHastaExp') {
-                                      val = formatDate(val)
-                                    } else if (field === 'nroExpMun') {
-                                      val = formatExpediente(val)
+                            ).map((field) => {
+                              const isDate = field === 'fechaDesdeExp' || field === 'fechaHastaExp'
+                              const dateErr = isDate && rv[field] ? getDateValidationError(rv[field], forceTouchedDateErrors) : null
+                              return (
+                                <td key={field} className="px-1 py-1 relative">
+                                  <input
+                                    type="text"
+                                    value={rv[field]}
+                                    onChange={(e) => {
+                                      let val = e.target.value
+                                      if (isDate) {
+                                        val = formatDate(val)
+                                      } else if (field === 'nroExpMun') {
+                                        val = formatExpediente(val)
+                                      }
+                                      updateRenovacion(i, field, val)
+                                    }}
+                                    readOnly={roJubila}
+                                    placeholder={
+                                      isDate
+                                        ? 'dd/mm/aaaa'
+                                        : field === 'nroExpMun'
+                                        ? '000.000/00'
+                                        : '—'
                                     }
-                                    updateRenovacion(i, field, val)
-                                  }}
-                                  readOnly={roJubila}
-                                  placeholder={
-                                    field === 'fechaDesdeExp' || field === 'fechaHastaExp'
-                                      ? 'dd/mm/aaaa'
-                                      : field === 'nroExpMun'
-                                      ? '000.000/00'
-                                      : '—'
-                                  }
-                                  autoComplete="off"
-                                  className={`w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-200 focus:border-[#1e3a8a] transition min-w-[90px] ${
-                                    roJubila ? 'bg-slate-50 text-slate-500 cursor-default' : ''
-                                  }`}
-                                />
-                              </td>
-                            ))}
+                                    title={dateErr ?? undefined}
+                                    autoComplete="off"
+                                    className={`w-full rounded border px-2 py-1 text-xs transition min-w-[90px] ${
+                                      dateErr
+                                        ? 'border-rose-500 bg-rose-50/40 text-rose-900 focus:outline-none focus:ring-1 focus:ring-rose-300 focus:border-rose-600'
+                                        : 'border-slate-200 bg-white text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-200 focus:border-[#1e3a8a]'
+                                    } ${
+                                      roJubila ? 'bg-slate-50 text-slate-500 cursor-default' : ''
+                                    }`}
+                                  />
+                                  {dateErr && (
+                                    <span className="block text-[9px] text-rose-600 font-bold truncate mt-0.5" title={dateErr}>
+                                      {dateErr}
+                                    </span>
+                                  )}
+                                </td>
+                              )
+                            })}
                           </tr>
                         ))}
                       </tbody>
@@ -1189,6 +1335,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                     onChange={(v) => update('fSolicitud', v)}
                     placeholder="dd/mm/aaaa"
                     readOnly={roJubila}
+                    forceTouched={forceTouchedDateErrors}
                   />
                   <FormField
                     label="Fecha Estimada Jubilación Ordinaria"
@@ -1196,6 +1343,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                     onChange={(v) => update('fEstimadaJOrd', v)}
                     placeholder="dd/mm/aaaa"
                     readOnly={roJubila}
+                    forceTouched={forceTouchedDateErrors}
                   />
                   <FormField
                     label="Número Expediente Pasividad"
@@ -1210,6 +1358,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                     onChange={(v) => update('fFirmaConvenio', v)}
                     placeholder="dd/mm/aaaa"
                     readOnly={roJubila}
+                    forceTouched={forceTouchedDateErrors}
                   />
                   <FormField
                     label="Fecha Inicio Pasividad"
@@ -1217,6 +1366,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                     onChange={(v) => update('fInicioPasividad', v)}
                     placeholder="dd/mm/aaaa"
                     readOnly={roJubila}
+                    forceTouched={forceTouchedDateErrors}
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -1245,6 +1395,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
                     onChange={(v) => update('notificacionArt43', v)}
                     placeholder="dd/mm/aaaa"
                     readOnly={roJubila}
+                    forceTouched={forceTouchedDateErrors}
                   />
                   <FormField
                     label="N. Exp. Art. 43 Susp. Pago"

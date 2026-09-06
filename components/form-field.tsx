@@ -1,5 +1,7 @@
+import { useState } from 'react'
+import { AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { formatExpediente, formatDate, formatCuil, formatLettersOnly, formatDigitsOnly } from '@/lib/format-utils'
+import { formatExpediente, formatDate, formatCuil, formatLettersOnly, formatDigitsOnly, getDateValidationError } from '@/lib/format-utils'
 
 interface FieldProps {
   label: string
@@ -11,6 +13,8 @@ interface FieldProps {
   type?: string
   small?: boolean
   mask?: 'expediente' | 'date' | 'cuil' | 'letters' | 'digits'
+  error?: string | null
+  forceTouched?: boolean
 }
 
 export function FormField({
@@ -23,18 +27,28 @@ export function FormField({
   type = 'text',
   small = false,
   mask,
+  error,
+  forceTouched = false,
 }: FieldProps) {
+  const [touched, setTouched] = useState(false)
+
+  const effectiveMask =
+    mask ??
+    (placeholder === '000.000/00'
+      ? 'expediente'
+      : placeholder === 'dd/mm/aaaa'
+      ? 'date'
+      : placeholder === '20-00000000-0'
+      ? 'cuil'
+      : undefined)
+
+  const isDate = effectiveMask === 'date'
+  // Validación de fecha solo si tiene algún valor cargado
+  const isTouched = forceTouched || touched
+  const dateError = error ?? (isDate ? getDateValidationError(value, isTouched) : null)
+
   const handleChange = (rawVal: string) => {
     if (!onChange) return
-    const effectiveMask =
-      mask ??
-      (placeholder === '000.000/00'
-        ? 'expediente'
-        : placeholder === 'dd/mm/aaaa'
-        ? 'date'
-        : placeholder === '20-00000000-0'
-        ? 'cuil'
-        : undefined)
 
     if (effectiveMask === 'expediente') {
       onChange(formatExpediente(rawVal))
@@ -53,19 +67,39 @@ export function FormField({
 
   return (
     <div className={cn('flex flex-col gap-1', className)}>
-      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">
-        {label}
-      </label>
+      <div className="flex items-center justify-between gap-1">
+        <label
+          className={cn(
+            'text-[10px] font-semibold uppercase tracking-wider truncate',
+            dateError ? 'text-rose-600 font-bold' : 'text-slate-500'
+          )}
+        >
+          {label}
+        </label>
+        {dateError && (
+          <span
+            className="text-[10px] text-rose-600 font-bold truncate flex items-center gap-1"
+            title={dateError}
+          >
+            <AlertCircle className="w-3 h-3 flex-shrink-0 text-rose-600" />
+            {dateError}
+          </span>
+        )}
+      </div>
       <input
         type={type}
         value={value}
         onChange={(e) => handleChange(e.target.value)}
+        onBlur={() => setTouched(true)}
         readOnly={readOnly}
         placeholder={placeholder ?? '—'}
+        title={dateError ?? undefined}
         autoComplete="off"
         className={cn(
-          'rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-300',
-          'focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a] transition',
+          'rounded-md border bg-white px-2.5 py-1.5 text-sm transition',
+          dateError
+            ? 'border-rose-500 bg-rose-50/40 text-rose-900 placeholder:text-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-600'
+            : 'border-slate-200 text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a]',
           readOnly && 'bg-slate-50 text-slate-500 cursor-default',
           small ? 'text-xs py-1' : 'text-sm'
         )}

@@ -23,14 +23,53 @@ function dbDateToStr(date: Date | null | undefined): string {
   return `${dd}/${mm}/${yyyy}`
 }
 
-/** Convierte string 'dd/mm/aaaa' a Date o null */
-function strToDate(str: string): Date | null {
-  if (!str || !str.trim()) return null
-  const parts = str.trim().split('/')
-  if (parts.length !== 3) return null
-  const [dd, mm, yyyy] = parts
-  const d = new Date(`${yyyy}-${mm}-${dd}`)
-  return isNaN(d.getTime()) ? null : d
+/** Convierte string de fecha a Date (UTC) o null */
+function strToDate(str: string | null | undefined): Date | null {
+  if (!str || typeof str !== 'string' || !str.trim()) return null
+  const s = str.trim()
+
+  // 1. Formato ISO / YYYY-MM-DD
+  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(s)) {
+    const [y, m, d] = s.split('T')[0].split('-').map(Number)
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      return new Date(Date.UTC(y, m - 1, d))
+    }
+  }
+
+  // 2. Formato DD/MM/YYYY, D/M/YYYY, DD-MM-YYYY o DD.MM.YYYY
+  const parts = s.split(/[\/\.\-]/).map((p) => p.trim())
+  if (parts.length === 3) {
+    let [dStr, mStr, yStr] = parts
+    // Si viene como YYYY/MM/DD
+    if (dStr.length === 4) {
+      const temp = dStr
+      dStr = yStr
+      yStr = temp
+    }
+    // Si el año es de 2 dígitos (ej. '26' -> 2026)
+    if (yStr.length === 2) {
+      yStr = '20' + yStr
+    }
+    let day = parseInt(dStr, 10)
+    let month = parseInt(mStr, 10)
+    let year = parseInt(yStr, 10)
+
+    if (month > 12 && day <= 12) {
+      const temp = day
+      day = month
+      month = temp
+    }
+    month = Math.max(1, Math.min(month, 12))
+    day = Math.max(1, Math.min(day, 31))
+
+    if (!isNaN(day) && !isNaN(month) && !isNaN(year) && year >= 1900 && year <= 2100) {
+      return new Date(Date.UTC(year, month - 1, day))
+    }
+  }
+
+  // 3. Fallback
+  const fallback = new Date(s)
+  return isNaN(fallback.getTime()) ? null : fallback
 }
 
 /** Calcula la antigüedad entre dos fechas como string "X años, Y meses" */
@@ -259,29 +298,38 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
   }
 
   try {
-    const isNumeric = /^\d+$/.test(q)
+    const cleanNumeric = q.replace(/[\.\s-]/g, '')
+    const isNumeric = /^\d+$/.test(cleanNumeric) && cleanNumeric.length > 0
 
     if (isNumeric) {
       // ── Búsqueda por DNI ──────────────────────────────────────────────────
       // 1º Coincidencia exacta
       const exactos = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
-        where: { DNI_AGENTE: q },
+        where: { DNI_AGENTE: cleanNumeric },
         include: includeClause,
         take: 50,
       })
       if (exactos.length > 0) return toRecords(exactos)
 
-      // 2º DNIs que empiecen con el número ingresado
+      // 2º Si no encuentra exacto, busca DNIs que contengan el número ingresado
       const parciales = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
-        where: { DNI_AGENTE: { startsWith: q } },
+        where: { DNI_AGENTE: { contains: cleanNumeric } },
         include: includeClause,
         orderBy: { DNI_AGENTE: 'asc' },
         take: 50,
       })
+
+      // Priorizar los que comiencen con el número
+      parciales.sort((a, b) => {
+        const aStarts = (a.DNI_AGENTE ?? '').startsWith(cleanNumeric) ? 0 : 1
+        const bStarts = (b.DNI_AGENTE ?? '').startsWith(cleanNumeric) ? 0 : 1
+        return aStarts - bStarts
+      })
+
       return toRecords(parciales)
     } else {
-      // ── Búsqueda por Apellido ─────────────────────────────────────────────
-      // 1º Coincidencia exacta de apellido (case-insensitive via contains con q exacto)
+      // ── Búsqueda por Apellido / Nombre ────────────────────────────────────
+      // 1º Coincidencia exacta de apellido
       const exactos = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
         where: { APELLIDO_AGENTE: q },
         include: includeClause,
@@ -289,13 +337,27 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
       })
       if (exactos.length > 0) return toRecords(exactos)
 
-      // 2º Apellidos que empiecen con el texto ingresado
+      // 2º Si no encuentra exacto, busca apellidos o nombres que contengan el texto ingresado
       const parciales = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
-        where: { APELLIDO_AGENTE: { startsWith: q } },
+        where: {
+          OR: [
+            { APELLIDO_AGENTE: { contains: q } },
+            { NOMBRE_AGENTE: { contains: q } },
+          ],
+        },
         include: includeClause,
         orderBy: { APELLIDO_AGENTE: 'asc' },
         take: 50,
       })
+
+      // Priorizar los que comiencen con el texto buscado
+      const qLower = q.toLowerCase()
+      parciales.sort((a, b) => {
+        const aStarts = (a.APELLIDO_AGENTE ?? '').toLowerCase().startsWith(qLower) ? 0 : 1
+        const bStarts = (b.APELLIDO_AGENTE ?? '').toLowerCase().startsWith(qLower) ? 0 : 1
+        return aStarts - bStarts
+      })
+
       return toRecords(parciales)
     }
   } catch (error) {
@@ -412,18 +474,18 @@ export async function updateJubila(
       where: { ID_JUBILA: jubilaId },
       data: {
         INFORMACION_LABORAL_NUMERO_TRAMITE: data.nroTramite ?? undefined,
-        INFORMACION_LABORAL_FECHA_BAJA: data.fBaja ? strToDate(data.fBaja) : undefined,
+        INFORMACION_LABORAL_FECHA_BAJA: data.fBaja !== undefined ? strToDate(data.fBaja) : undefined,
         INFORMACION_LABORAL_NUMERO_EXPEDIENTE_MUNICIPAL_RENUNCIA: data.nroExpMunRenuncia ?? undefined,
         INFORMACION_LABORAL_JUBILACION_NUMERO_EXPEDIENTE_CAJA: data.jNroExpCaja ?? undefined,
         INFORMACION_LABORAL_NUMERO_RESOLUCION_CAJA: data.nroResRenCaja ?? undefined,
         INFORMACION_LABORAL_NUMERO_EXPEDIENTE_CAJA_DENEGADA: data.nroExpCajDeneg ?? undefined,
-        PASIVIDAD_FECHA_SOLICITUD: data.fSolicitud ? strToDate(data.fSolicitud) : undefined,
-        PASIVIDAD_FECHA_ESTIMADA_JUBILACION_ORDINARIA: data.fEstimadaJOrd ? strToDate(data.fEstimadaJOrd) : undefined,
+        PASIVIDAD_FECHA_SOLICITUD: data.fSolicitud !== undefined ? strToDate(data.fSolicitud) : undefined,
+        PASIVIDAD_FECHA_ESTIMADA_JUBILACION_ORDINARIA: data.fEstimadaJOrd !== undefined ? strToDate(data.fEstimadaJOrd) : undefined,
         PASIVIDAD_NUMERO_EXPEDIENTE_PASIVIDAD: data.nroExpPasividad ?? undefined,
-        PASIVIDAD_FECHA_FIRMA_CONVENIO: data.fFirmaConvenio ? strToDate(data.fFirmaConvenio) : undefined,
-        PASIVIDAD_FECHA_INICIO_PASIVIDAD: data.fInicioPasividad ? strToDate(data.fInicioPasividad) : undefined,
+        PASIVIDAD_FECHA_FIRMA_CONVENIO: data.fFirmaConvenio !== undefined ? strToDate(data.fFirmaConvenio) : undefined,
+        PASIVIDAD_FECHA_INICIO_PASIVIDAD: data.fInicioPasividad !== undefined ? strToDate(data.fInicioPasividad) : undefined,
         PASIVIDAD_OBSERVACIONES_PASIVIDAD: data.observacionPasividad ?? undefined,
-        NOTIFICACION_ARTICULO_CUARENTAYTRES: data.notificacionArt43 ? strToDate(data.notificacionArt43) : undefined,
+        NOTIFICACION_ARTICULO_CUARENTAYTRES: data.notificacionArt43 !== undefined ? strToDate(data.notificacionArt43) : undefined,
         NOTIFICACION_NUMERO_EXPEDIENTE_SUSPENCION_PAGO: data.nExpArt43SuspPago ?? undefined,
         OBSERVACIONES: data.observacion ?? undefined,
         FECHA_ULTIMA_MODIFICACION: new Date(),
@@ -572,10 +634,21 @@ export async function createJubila(
       return { ok: false, error: 'DNI y apellido/nombre son obligatorios.' }
     }
 
-    // Buscar agente por DNI
-    let agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
-      where: { DNI_AGENTE: data.dni },
-    })
+    // Buscar agente por ID (si viene con prefijo 'agente-') o por DNI
+    let agente = null
+    if (data.id && data.id.startsWith('agente-')) {
+      const idAgente = parseInt(data.id.replace('agente-', ''), 10)
+      if (!isNaN(idAgente)) {
+        agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
+          where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: idAgente },
+        })
+      }
+    }
+    if (!agente && data.dni) {
+      agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
+        where: { DNI_AGENTE: data.dni.trim() },
+      })
+    }
 
     // Si no existe, crearlo
     if (!agente) {
@@ -585,7 +658,7 @@ export async function createJubila(
 
       agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.create({
         data: {
-          DNI_AGENTE: data.dni,
+          DNI_AGENTE: data.dni.trim(),
           NOMBRE_AGENTE: nombre,
           APELLIDO_AGENTE: apellido,
           FECHA_NACIMIENTO: strToDate(data.fechaNacimiento ?? '') ?? new Date(),
@@ -608,18 +681,18 @@ export async function createJubila(
       data: {
         ID_AGENTE: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA,
         INFORMACION_LABORAL_NUMERO_TRAMITE: data.nroTramite || null,
-        INFORMACION_LABORAL_FECHA_BAJA: data.fBaja ? strToDate(data.fBaja) : null,
+        INFORMACION_LABORAL_FECHA_BAJA: strToDate(data.fBaja),
         INFORMACION_LABORAL_NUMERO_EXPEDIENTE_MUNICIPAL_RENUNCIA: data.nroExpMunRenuncia || null,
         INFORMACION_LABORAL_JUBILACION_NUMERO_EXPEDIENTE_CAJA: data.jNroExpCaja || null,
         INFORMACION_LABORAL_NUMERO_RESOLUCION_CAJA: data.nroResRenCaja || null,
         INFORMACION_LABORAL_NUMERO_EXPEDIENTE_CAJA_DENEGADA: data.nroExpCajDeneg || null,
-        PASIVIDAD_FECHA_SOLICITUD: data.fSolicitud ? strToDate(data.fSolicitud) : null,
-        PASIVIDAD_FECHA_ESTIMADA_JUBILACION_ORDINARIA: data.fEstimadaJOrd ? strToDate(data.fEstimadaJOrd) : null,
+        PASIVIDAD_FECHA_SOLICITUD: strToDate(data.fSolicitud),
+        PASIVIDAD_FECHA_ESTIMADA_JUBILACION_ORDINARIA: strToDate(data.fEstimadaJOrd),
         PASIVIDAD_NUMERO_EXPEDIENTE_PASIVIDAD: data.nroExpPasividad || null,
-        PASIVIDAD_FECHA_FIRMA_CONVENIO: data.fFirmaConvenio ? strToDate(data.fFirmaConvenio) : null,
-        PASIVIDAD_FECHA_INICIO_PASIVIDAD: data.fInicioPasividad ? strToDate(data.fInicioPasividad) : null,
+        PASIVIDAD_FECHA_FIRMA_CONVENIO: strToDate(data.fFirmaConvenio),
+        PASIVIDAD_FECHA_INICIO_PASIVIDAD: strToDate(data.fInicioPasividad),
         PASIVIDAD_OBSERVACIONES_PASIVIDAD: data.observacionPasividad || null,
-        NOTIFICACION_ARTICULO_CUARENTAYTRES: data.notificacionArt43 ? strToDate(data.notificacionArt43) : null,
+        NOTIFICACION_ARTICULO_CUARENTAYTRES: strToDate(data.notificacionArt43),
         NOTIFICACION_NUMERO_EXPEDIENTE_SUSPENCION_PAGO: data.nExpArt43SuspPago || null,
         OBSERVACIONES: data.observacion || null,
         FECHA_INICIO_CREACION_JUBILA: new Date(),

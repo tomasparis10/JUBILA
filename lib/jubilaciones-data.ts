@@ -64,15 +64,15 @@ export interface JubilacionRecord {
 
 
 export const BENEFICIO_OPTIONS = [
-  { value: '1',  label: 'Jubilación Ordinaria' },
-  { value: '2',  label: 'Jubilación por Invalidez Definitiva' },
-  { value: '3',  label: 'Jubilación por Invalidez Provisoria' },
-  { value: '4',  label: 'Jubilación por Edad Avanzada' },
-  { value: '5',  label: 'Jubilación por Minusvalía' },
-  { value: '6',  label: 'Reincorporación de Invalidez Provisoria' },
-  { value: '7',  label: 'PAV' },
-  { value: '8',  label: 'Jubilación en trámite' },
-  { value: '9',  label: 'PAV en trámite' },
+  { value: '1', label: 'Jubilación Ordinaria' },
+  { value: '2', label: 'Jubilación por Invalidez Definitiva' },
+  { value: '3', label: 'Jubilación por Invalidez Provisoria' },
+  { value: '4', label: 'Jubilación por Edad Avanzada' },
+  { value: '5', label: 'Jubilación por Minusvalía' },
+  { value: '6', label: 'Reincorporación de Invalidez Provisoria' },
+  { value: '7', label: 'PAV' },
+  { value: '8', label: 'Jubilación en trámite' },
+  { value: '9', label: 'PAV en trámite' },
   { value: '10', label: 'PAV Desistido' },
   { value: '11', label: 'PAV caja no otorga' },
   { value: '12', label: 'Notificación por cédula' },
@@ -89,31 +89,31 @@ export const BENEFICIO_INVALIDEZ_PROVISORIA = '3'
 
 // Mapeo de beneficio → botones extra (además de los 2 fijos de PDF)
 // Cada entrada es: { label, icon: 'printer'|'file-check'|'archive'|'file-text'|'check-square'|'send' }
-export type BtnExtra = { label: string; icon: string }
+export type BtnExtra = { label: string; icon: string; action?: string }
 
 export const BOTONES_POR_BENEFICIO: Record<string, BtnExtra[]> = {
-  '1':  [ { label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' } ],
-  '2':  [ { label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' } ],
-  '3':  [ { label: 'Renuncia Provisoria', icon: 'printer' }, { label: 'Pase Interno', icon: 'send' } ],
-  '4':  [ { label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' } ],
-  '5':  [ { label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' } ],
-  '6':  [],
-  '7':  [],
-  '8':  [],
-  '9':  [
-    { label: 'Impresión de Formulario de Solicitud', icon: 'file-text' },
-    { label: 'Formulario de Aceptación y Rechazo', icon: 'check-square' },
-    { label: 'Pase a Secretaría', icon: 'send' },
+  '1': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' }],
+  '2': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' }],
+  '3': [{ label: 'Renuncia Provisoria', icon: 'printer' }, { label: 'Pase Interno', icon: 'send' }],
+  '4': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' }],
+  '5': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' }],
+  '6': [],
+  '7': [],
+  '8': [],
+  '9': [
+    { label: 'Impresión de Formulario de Solicitud', icon: 'file-text', action: 'pav-solicitud' },
+    { label: 'Formulario de Aceptación y Rechazo', icon: 'check-square', action: 'pav-aceptacion' },
+    { label: 'Pase a Secretaría', icon: 'send', action: 'pav-pase' },
   ],
-  '10': [ { label: 'Pase al Archivo', icon: 'archive' } ],
-  '11': [ { label: 'Pase al Archivo', icon: 'archive' } ],
+  '10': [{ label: 'Pase al Archivo', icon: 'archive' }],
+  '11': [{ label: 'Pase al Archivo', icon: 'archive' }],
   '12': [],
   '13': [],
   '14': [],
-  '15': [ { label: 'Pase Interno', icon: 'send' } ],
-  '16': [ { label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' } ],
+  '15': [{ label: 'Pase Interno', icon: 'send' }],
+  '16': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' }],
   '17': [],
-  '18': [ { label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' } ],
+  '18': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send' }],
 }
 
 // Beneficios "activos" (agente activo = verde en header)
