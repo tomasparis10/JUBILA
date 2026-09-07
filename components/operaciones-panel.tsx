@@ -2,11 +2,12 @@
 
 import { useState, useRef, useCallback } from 'react'
 import {
-  PlusCircle, RefreshCw, UserCheck, AlertCircle, CheckCircle2,
+  RefreshCw, UserCheck, AlertCircle, CheckCircle2,
   Loader2, Clock, Users, X, UserCircle, Save, Search, ArrowRight,
   FileText, Database, Upload, ChevronDown, ChevronUp, ShieldAlert,
+  Pencil, UserCog,
 } from 'lucide-react'
-import { createAgente } from '@/app/actions/agentes'
+import { createAgente, searchAgentes, updateAgenteDatos } from '@/app/actions/agentes'
 import { FormField } from '@/components/form-field'
 import { formatCuil, extractDniFromCuil } from '@/lib/format-utils'
 import type { JubilacionRecord } from '@/lib/jubilaciones-data'
@@ -19,22 +20,37 @@ interface OperacionesPanelProps {
   onChangeOp: (op: OpMode) => void
 }
 
-// ── Formulario de Nuevo Agente (embebido) ────────────────────────────────────
-function FormNuevoAgente() {
-  const emptyAgent = (): Partial<JubilacionRecord> => ({
+// ── Formulario Gestión de Agentes (Crear + Editar + Grilla) ──────────────────
+function GestionAgentes() {
+  // ── Estado del formulario ────────────────────────────────────────────────
+  const emptyForm = (): Partial<JubilacionRecord> => ({
     cuil: '', dni: '', apellidoNombres: '', telefono: '',
     correo: '', fechaNacimiento: '', edadActual: '',
+    programa: '', secretaria: '', cargo: '',
+    antiguedadRecibo: '', antiguedadLicencias: '',
   })
 
-  const [form, setForm] = useState<Partial<JubilacionRecord>>(emptyAgent())
+  const [form, setForm] = useState<Partial<JubilacionRecord>>(emptyForm())
+  const [editingAgente, setEditingAgente] = useState<JubilacionRecord | null>(null) // null = modo crear
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [formSuccess, setFormSuccess] = useState<string | null>(null)
 
-  const update = (field: keyof JubilacionRecord, value: string) => {
+  // ── Estado de la grilla ──────────────────────────────────────────────────
+  const [gridSearch, setGridSearch] = useState('')
+  const [gridResults, setGridResults] = useState<JubilacionRecord[]>([])
+  const [gridLoading, setGridLoading] = useState(false)
+  const [gridError, setGridError] = useState<string | null>(null)
+  const [selectedGridId, setSelectedGridId] = useState<string | null>(null)
+  const [hasSearched, setHasSearched] = useState(false)
+
+  const formTopRef = useRef<HTMLDivElement>(null)
+
+  // ── Modo edición vs creación ─────────────────────────────────────────────
+  const isEditing = editingAgente !== null
+
+  const update = (field: keyof JubilacionRecord, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }))
-  }
 
   const handleCuilChange = (raw: string) => {
     const cuil = formatCuil(raw)
@@ -42,86 +58,172 @@ function FormNuevoAgente() {
     setForm((prev) => ({ ...prev, cuil, dni }))
   }
 
-  const handleFechaNac = (v: string) => {
-    update('fechaNacimiento', v)
-  }
-
   const handleReset = () => {
-    setForm(emptyAgent())
-    setError(null)
-    setSuccess(false)
+    setForm(emptyForm())
+    setEditingAgente(null)
+    setSelectedGridId(null)
+    setFormError(null)
+    setFormSuccess(null)
   }
 
+  // ── Seleccionar un agente de la grilla ────────────────────────────────────
+  const handleSelectFromGrid = (agente: JubilacionRecord) => {
+    setSelectedGridId(agente.id)
+    setEditingAgente(agente)
+    setForm({
+      cuil: agente.cuil,
+      dni: agente.dni,
+      apellidoNombres: agente.apellidoNombres,
+      telefono: agente.telefono,
+      correo: agente.correo,
+      fechaNacimiento: agente.fechaNacimiento,
+      edadActual: agente.edadActual,
+      programa: agente.programa,
+      secretaria: agente.secretaria,
+      cargo: agente.cargo,
+      antiguedadRecibo: agente.antiguedadRecibo,
+      antiguedadLicencias: agente.antiguedadLicencias,
+    })
+    setFormError(null)
+    setFormSuccess(null)
+    // Scroll al formulario
+    setTimeout(() => formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
+
+  // ── Guardar (crear o editar) ──────────────────────────────────────────────
   const handleSave = async () => {
-    setError(null)
-    if (!form.dni) { setError('El DNI (derivado del CUIL) es obligatorio.'); return }
-    if (!form.apellidoNombres) { setError('El Apellido y Nombres son obligatorios.'); return }
+    setFormError(null)
+    setFormSuccess(null)
+    if (!form.dni) { setFormError('El DNI (derivado del CUIL) es obligatorio.'); return }
+    if (!form.apellidoNombres) { setFormError('El Apellido y Nombres son obligatorios.'); return }
+
     setSaving(true)
     try {
-      const result = await createAgente(form)
-      if (result.ok) {
-        const now = new Date()
-        const ts = `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`
-        setLastUpdated(ts)
-        setSuccess(true)
-        setForm(emptyAgent())
+      if (isEditing && editingAgente) {
+        // Modo editar: extraer ID numérico del agente
+        const rawId = editingAgente.id
+        const numericId = rawId.startsWith('agente-')
+          ? parseInt(rawId.replace('agente-', ''), 10)
+          : parseInt(rawId, 10)
+
+        if (isNaN(numericId)) {
+          setFormError('No se pudo determinar el ID del agente para editar.')
+          return
+        }
+
+        const result = await updateAgenteDatos(numericId, {
+          cuil: form.cuil ?? '',
+          apellidoNombres: form.apellidoNombres ?? '',
+          telefono: form.telefono ?? '',
+          correo: form.correo ?? '',
+          fechaNacimiento: form.fechaNacimiento ?? '',
+        })
+
+        if (result.ok) {
+          setFormSuccess(`Agente ${form.apellidoNombres} actualizado correctamente.`)
+          // Refrescar la fila en la grilla
+          if (result.record) {
+            setGridResults((prev) =>
+              prev.map((a) => (a.id === editingAgente.id ? result.record! : a))
+            )
+            setEditingAgente(result.record)
+          }
+        } else {
+          setFormError(result.error ?? 'Error al actualizar.')
+        }
       } else {
-        setError(result.error ?? 'Error al guardar.')
+        // Modo crear
+        const result = await createAgente(form)
+        if (result.ok) {
+          setFormSuccess('¡Agente registrado con éxito!')
+          setForm(emptyForm())
+          setEditingAgente(null)
+          setSelectedGridId(null)
+        } else {
+          setFormError(result.error ?? 'Error al guardar.')
+        }
       }
     } catch {
-      setError('Error inesperado al guardar.')
+      setFormError('Error inesperado al guardar.')
     } finally {
       setSaving(false)
     }
   }
 
+  // ── Búsqueda en la grilla ─────────────────────────────────────────────────
+  const handleGridSearch = useCallback(async () => {
+    const q = gridSearch.trim()
+    if (!q) return
+    setGridLoading(true)
+    setGridError(null)
+    setHasSearched(true)
+    try {
+      const results = await searchAgentes(q)
+      setGridResults(results)
+    } catch {
+      setGridError('Error al buscar en la base de datos.')
+    } finally {
+      setGridLoading(false)
+    }
+  }, [gridSearch])
+
   return (
-    <div className="flex flex-col gap-5">
-      {/* Header info */}
+    <div className="flex flex-col gap-5" ref={formTopRef}>
+      {/* ── Header info ── */}
       <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg">
-        <UserCircle className="w-5 h-5 text-[#1e3a8a] mt-0.5 flex-shrink-0" />
-        <div>
-          <p className="text-sm font-semibold text-[#1e3a8a]">Agregar Nuevo Agente</p>
+        <UserCog className="w-5 h-5 text-[#1e3a8a] mt-0.5 flex-shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-[#1e3a8a]">
+            {isEditing ? `Editando: ${editingAgente?.apellidoNombres || '—'}` : 'Agregar Nuevo Agente'}
+          </p>
           <p className="text-xs text-slate-500 mt-0.5">
-            Complete los datos personales del nuevo agente. El estado se establecerá como{' '}
-            <span className="font-semibold text-emerald-600">ACTIVO</span> por defecto.
+            {isEditing
+              ? 'Modifique los datos y presione Guardar Cambios. Los campos sombreados son de solo lectura.'
+              : 'Complete los datos personales del nuevo agente. El estado se establecerá como ACTIVO por defecto.'}
           </p>
         </div>
+        {isEditing && (
+          <button
+            onClick={handleReset}
+            title="Cancelar edición y limpiar formulario"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-semibold transition flex-shrink-0"
+          >
+            <X className="w-3.5 h-3.5" /> Cancelar edición
+          </button>
+        )}
       </div>
 
-      {/* Success banner */}
-      {success && (
+      {/* ── Success banner ── */}
+      {formSuccess && (
         <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-lg">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-emerald-700">¡Agente registrado con éxito!</p>
-            {lastUpdated && (
-              <p className="text-xs text-emerald-600 flex items-center gap-1 mt-0.5">
-                <Clock className="w-3 h-3" /> Última actualización: {lastUpdated}
-              </p>
-            )}
-          </div>
-          <button onClick={handleReset} className="text-emerald-500 hover:text-emerald-700 transition">
+          <span className="text-sm font-semibold text-emerald-700 flex-1">{formSuccess}</span>
+          <button onClick={() => setFormSuccess(null)} className="text-emerald-500 hover:text-emerald-700 transition">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Error banner */}
-      {error && (
+      {/* ── Error banner ── */}
+      {formError && (
         <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
           <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-          <span className="text-sm text-red-700 flex-1">{error}</span>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 transition">
+          <span className="text-sm text-red-700 flex-1">{formError}</span>
+          <button onClick={() => setFormError(null)} className="text-red-400 hover:text-red-600 transition">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Form */}
+      {/* ── Formulario ── */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+        <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <h3 className="text-xs font-bold text-[#1e3a8a] uppercase tracking-widest">Datos Personales</h3>
+          {isEditing && (
+            <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Pencil className="w-2.5 h-2.5" /> Modo Edición
+            </span>
+          )}
         </div>
         <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
           <FormField
@@ -161,7 +263,7 @@ function FormNuevoAgente() {
           <FormField
             label="Fecha de Nacimiento"
             value={form.fechaNacimiento ?? ''}
-            onChange={handleFechaNac}
+            onChange={(v) => update('fechaNacimiento', v)}
             placeholder="dd/mm/aaaa"
             mask="date"
           />
@@ -171,21 +273,46 @@ function FormNuevoAgente() {
             placeholder="Auto"
             readOnly
           />
+          <FormField
+            label="Programa"
+            value={form.programa ?? ''}
+            placeholder="Programa"
+            readOnly
+          />
+          <FormField
+            label="Secretaría"
+            value={form.secretaria ?? ''}
+            placeholder="Secretaría"
+            readOnly
+          />
+          <FormField
+            label="Cargo"
+            value={form.cargo ?? ''}
+            placeholder="Cargo desempeñado"
+            readOnly
+          />
+          <FormField
+            label="Antigüedad Recibo"
+            value={form.antiguedadRecibo ?? ''}
+            placeholder="Calculada automáticamente"
+            readOnly
+          />
+          <FormField
+            label="Antigüedad Licencias"
+            value={form.antiguedadLicencias ?? ''}
+            placeholder="Calculada automáticamente"
+            readOnly
+          />
         </div>
       </div>
 
-      {/* Actions */}
+      {/* ── Acciones ── */}
       <div className="flex items-center gap-3 justify-end">
-        {lastUpdated && !success && (
-          <span className="text-xs text-slate-400 flex items-center gap-1 mr-auto">
-            <Clock className="w-3 h-3" /> Última actualización: {lastUpdated}
-          </span>
-        )}
         <button
           onClick={handleReset}
           className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm font-semibold transition"
         >
-          Limpiar
+          {isEditing ? 'Cancelar' : 'Limpiar'}
         </button>
         <button
           onClick={handleSave}
@@ -193,12 +320,138 @@ function FormNuevoAgente() {
           className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition shadow-sm"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          {saving ? 'Guardando...' : 'Guardar Agente'}
+          {saving ? 'Guardando...' : isEditing ? 'Guardar Cambios' : 'Guardar Agente'}
         </button>
+      </div>
+
+      {/* ── Separador ── */}
+      <div className="border-t border-slate-200 pt-1">
+        <div className="flex items-center gap-2 mb-1">
+          <Users className="w-4 h-4 text-slate-400" />
+          <h3 className="text-sm font-bold text-slate-700">Listado de Agentes</h3>
+          <span className="text-xs text-slate-400 ml-auto">Buscá por DNI o Apellido para seleccionar y editar</span>
+        </div>
+      </div>
+
+      {/* ── Barra de búsqueda de la grilla ── */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Buscar por DNI o Apellido..."
+            value={gridSearch}
+            onChange={(e) => setGridSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleGridSearch() }}
+            className="pl-9 pr-4 py-2 w-full rounded-lg border border-slate-200 bg-white text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a] transition"
+          />
+        </div>
+        <button
+          onClick={handleGridSearch}
+          disabled={gridLoading || !gridSearch.trim()}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition"
+        >
+          {gridLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+          {gridLoading ? 'Buscando...' : 'Buscar'}
+        </button>
+      </div>
+
+      {/* ── Error grilla ── */}
+      {gridError && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span>{gridError}</span>
+        </div>
+      )}
+
+      {/* ── Grilla ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+          <Users className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-xs font-bold text-[#1e3a8a] uppercase tracking-widest">
+            {hasSearched ? `${gridResults.length} resultado${gridResults.length !== 1 ? 's' : ''}` : 'Agentes'}
+          </span>
+          {selectedGridId && (
+            <span className="ml-auto text-[10px] bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-semibold">
+              Agente seleccionado
+            </span>
+          )}
+        </div>
+
+        {!hasSearched ? (
+          <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+            <Search className="w-8 h-8 opacity-30" />
+            <p className="text-sm">Ingresá un DNI o Apellido para buscar agentes.</p>
+          </div>
+        ) : gridResults.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+            <Users className="w-8 h-8 opacity-30" />
+            <p className="text-sm">No se encontraron agentes con esa búsqueda.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-slate-100 z-10">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider w-28">DNI</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider">Apellido y Nombres</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider hidden md:table-cell">Cargo</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider hidden lg:table-cell">Secretaría</th>
+                  <th className="px-3 py-2.5 text-center font-bold text-slate-600 uppercase tracking-wider w-24">Estado</th>
+                  <th className="px-3 py-2.5 text-center font-bold text-slate-600 uppercase tracking-wider w-20">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {gridResults.map((agente) => {
+                  const isSelected = selectedGridId === agente.id
+                  return (
+                    <tr
+                      key={agente.id}
+                      onClick={() => handleSelectFromGrid(agente)}
+                      className={`cursor-pointer transition ${
+                        isSelected
+                          ? 'bg-blue-50 border-l-2 border-l-[#1e3a8a]'
+                          : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <td className="px-3 py-2.5 font-mono text-slate-600">{agente.dni || '—'}</td>
+                      <td className="px-3 py-2.5 font-semibold text-slate-800">{agente.apellidoNombres || '—'}</td>
+                      <td className="px-3 py-2.5 text-slate-500 hidden md:table-cell truncate max-w-[120px]">{agente.cargo || '—'}</td>
+                      <td className="px-3 py-2.5 text-slate-500 hidden lg:table-cell truncate max-w-[120px]">{agente.secretaria || '—'}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          agente.estadoActivo
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                            : 'bg-red-50 border-red-200 text-red-700'
+                        }`}>
+                          {agente.estadoActivo ? 'ACTIVO' : 'INACTIVO'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleSelectFromGrid(agente) }}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold transition border ${
+                            isSelected
+                              ? 'bg-[#1e3a8a] text-white border-[#1e3a8a]'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50 hover:border-blue-200 hover:text-[#1e3a8a]'
+                          }`}
+                        >
+                          <Pencil className="w-3 h-3" />
+                          {isSelected ? 'Editando' : 'Editar'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )
 }
+
 
 // ── Sub-componente: FileDropZone ──────────────────────────────────────────────
 interface FileDropZoneProps {
@@ -867,8 +1120,8 @@ export default function OperacionesPanel({ activeOp, onChangeOp }: OperacionesPa
               : 'bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-200'
           }`}
         >
-          <PlusCircle className="w-4 h-4" />
-          Agregar Nuevo Agente
+          <UserCog className="w-4 h-4" />
+          Gestión de Agentes
         </button>
         <button
           onClick={() => onChangeOp('actualizacion-masiva')}
@@ -884,7 +1137,7 @@ export default function OperacionesPanel({ activeOp, onChangeOp }: OperacionesPa
       </div>
 
       {/* Content */}
-      {activeOp === 'agregar-agente' && <FormNuevoAgente />}
+      {activeOp === 'agregar-agente' && <GestionAgentes />}
       {activeOp === 'actualizacion-masiva' && <ActualizacionMasiva />}
       {!activeOp && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">

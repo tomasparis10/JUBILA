@@ -878,3 +878,39 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
     return []
   }
 }
+
+/**
+ * Actualiza los datos personales editables de un agente existente en
+ * DATOS_PERSONALES_AGENTE_JUBILA, identificado por su ID numérico.
+ * Solo actualiza los campos que se pasan (cuil, apellidoNombres, telefono,
+ * correo, fechaNacimiento). No toca campos calculados por la actualización masiva.
+ */
+export async function updateAgenteDatos(
+  agenteId: number,
+  data: Pick<JubilacionRecord, 'cuil' | 'apellidoNombres' | 'telefono' | 'correo' | 'fechaNacimiento'>,
+): Promise<{ ok: boolean; error?: string; record?: JubilacionRecord }> {
+  try {
+    const partes = (data.apellidoNombres ?? '').trim().split(' ')
+    const apellido = partes[0] ?? ''
+    const nombre = partes.slice(1).join(' ') || apellido
+
+    const updated = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
+      where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agenteId },
+      data: {
+        CUIL: data.cuil?.trim() || null,
+        APELLIDO_AGENTE: apellido,
+        NOMBRE_AGENTE: nombre,
+        NUMERO_TELEFONO: data.telefono?.trim() || null,
+        CORREO_ELECTRONICO: data.correo?.trim() || null,
+        FECHA_NACIMIENTO: strToDate(data.fechaNacimiento ?? '') ?? undefined,
+      },
+    })
+
+    revalidatePath('/')
+    const record = mapAgenteToRecord(updated)
+    return { ok: true, record }
+  } catch (error) {
+    console.error('[updateAgenteDatos] Error:', error)
+    return { ok: false, error: 'Error al actualizar los datos del agente en la base de datos.' }
+  }
+}

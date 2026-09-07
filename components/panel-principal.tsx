@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Search, UserCircle, Pencil, Save, FileText, Upload,
-  Printer, Send, Archive, CheckSquare, PlusCircle, GitBranch, X, CheckCircle2,
+  Printer, Send, Archive, CheckSquare, GitBranch, X, CheckCircle2,
   Loader2, AlertCircle, MessageSquare,
 } from 'lucide-react'
 import {
@@ -952,18 +952,6 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
             >
               {loadingSearch ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
               {loadingSearch ? 'Buscando...' : 'Buscar'}
-            </button>
-            <button
-              onClick={handleNew}
-              disabled={editing}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold transition ml-auto ${
-                editing
-                  ? 'bg-emerald-600/50 cursor-not-allowed opacity-60'
-                  : 'bg-emerald-600 hover:bg-emerald-700'
-              }`}
-            >
-              <PlusCircle className="w-4 h-4" />
-              Agregar Nuevo Agente
             </button>
           </div>
 
