@@ -31,12 +31,17 @@ import type {
   AnalysisResult,
   AnalyzeApiResponse,
 } from '@/lib/bulk-sync/types'
+import { getAuthenticatedSession } from '@/lib/auth-session'
 
 export const runtime = 'nodejs'
 // Los archivos Excel pueden ser grandes; aumentar el límite de body
 export const maxDuration = 60
 
 export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeApiResponse>> {
+  if (!await getAuthenticatedSession()) {
+    return NextResponse.json({ ok: false, error: 'Sesión inválida o vencida.' }, { status: 401 })
+  }
+
   try {
     // ── 1. Leer archivos del form ─────────────────────────────────────────────
     let formData: FormData

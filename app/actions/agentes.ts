@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import type { JubilacionRecord, RenovProvisoria, TrazabilidadEntry } from '@/lib/jubilaciones-data'
+import { requireAuthenticatedSession } from '@/lib/auth-session'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -154,9 +155,11 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
 
   return {
     id: String(j.ID_JUBILA),
+    agenteId: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA,
     cuil: agente.CUIL ?? '',
     dni: agente.DNI_AGENTE ?? '',
     apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+    sexo: agente.SEXO ?? '',
     estadoActivo: agente.ESTADO_ACTIVO,
     trazabilidad,
     telefono: agente.NUMERO_TELEFONO ?? '',
@@ -217,9 +220,11 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
 
   return {
     id: `agente-${agente.ID_DATOS_PERSONALES_AGENTE_JUBILA}`,
+    agenteId: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA,
     cuil: agente.CUIL ?? '',
     dni: agente.DNI_AGENTE ?? '',
     apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+    sexo: agente.SEXO ?? '',
     estadoActivo: agente.ESTADO_ACTIVO,
     trazabilidad: [],
     telefono: agente.NUMERO_TELEFONO ?? '',
@@ -259,7 +264,6 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
  */
 export async function searchAgentes(query: string): Promise<JubilacionRecord[]> {
   const q = query.trim()
-  if (!q) return []
 
   // Helper para mapear un agente (con sus includes) a JubilacionRecord
   const includeClause = {
@@ -298,6 +302,16 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
   }
 
   try {
+    await requireAuthenticatedSession()
+    if (!q) {
+      const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
+        include: includeClause,
+        orderBy: [{ APELLIDO_AGENTE: 'asc' }, { NOMBRE_AGENTE: 'asc' }],
+        take: 100,
+      })
+      return toRecords(agentes)
+    }
+
     const cleanNumeric = q.replace(/[\.\s-]/g, '')
     const isNumeric = /^\d+$/.test(cleanNumeric) && cleanNumeric.length > 0
 
@@ -373,6 +387,7 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
  */
 export async function getLastRecord(): Promise<JubilacionRecord | null> {
   try {
+    await requireAuthenticatedSession()
     // Intentar obtener el último JUBILA activo
     const lastJubila = await prisma.jUBILA.findFirst({
       where: { BIT_BORRADO: false },
@@ -417,6 +432,7 @@ export async function getLastRecord(): Promise<JubilacionRecord | null> {
 
 export async function getJubilaById(id: string): Promise<JubilacionRecord | null> {
   try {
+    await requireAuthenticatedSession()
     const jubila = await fetchJubilaById(Number(id))
     if (!jubila || jubila.BIT_BORRADO) return null
     return mapJubilaToRecord(jubila)
@@ -431,6 +447,7 @@ export async function getJubilaById(id: string): Promise<JubilacionRecord | null
  */
 export async function getJubilaList(take = 50): Promise<JubilacionRecord[]> {
   try {
+    await requireAuthenticatedSession()
     const jubilas = await prisma.jUBILA.findMany({
       where: { BIT_BORRADO: false },
       orderBy: { FECHA_ULTIMA_MODIFICACION: 'desc' },
@@ -466,9 +483,9 @@ export async function getJubilaList(take = 50): Promise<JubilacionRecord[]> {
 export async function updateJubila(
   id: string,
   data: Partial<JubilacionRecord>,
-  usuarioId: number = 1,
 ): Promise<{ ok: boolean; error?: string; record?: JubilacionRecord }> {
   try {
+    const { userId: usuarioId } = await requireAuthenticatedSession()
     const jubilaId = Number(id)
     await prisma.jUBILA.update({
       where: { ID_JUBILA: jubilaId },
@@ -569,14 +586,19 @@ export async function createAgente(
   data: Partial<JubilacionRecord>,
 ): Promise<{ ok: boolean; id?: string; error?: string; record?: JubilacionRecord }> {
   try {
+    const { userId: usuarioId } = await requireAuthenticatedSession()
     const dni = (data.dni ?? '').trim()
     const apellidoNombres = (data.apellidoNombres ?? '').trim()
+    const sexo = (data.sexo ?? '').trim()
 
     if (!dni) {
       return { ok: false, error: 'El DNI es obligatorio.' }
     }
     if (!apellidoNombres) {
       return { ok: false, error: 'El Apellido y Nombres son obligatorios.' }
+    }
+    if (sexo !== 'Masculino' && sexo !== 'Femenino') {
+      return { ok: false, error: 'El Sexo debe ser Masculino o Femenino.' }
     }
 
     // Verificar si ya existe un agente con ese DNI
@@ -600,6 +622,7 @@ export async function createAgente(
         SECRETARIA: data.secretaria?.trim() || null,
         PROGRAMA: data.programa?.trim() || null,
         CARGO: data.cargo?.trim() || null,
+        SEXO: sexo,
         CUIL: data.cuil?.trim() || null,
         NUMERO_TELEFONO: data.telefono?.trim() || null,
         CORREO_ELECTRONICO: data.correo?.trim() || null,
@@ -607,8 +630,14 @@ export async function createAgente(
         ANTIGUEDAD_LICENCIAS: strToDate(data.antiguedadLicencias ?? ''),
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: strToDate(data.fechaEstimadaJubilacionOrdinaria ?? ''),
         EDAD_ESTIMACION_JUBILACION: data.edadActual ? parseInt(data.edadActual) : null,
-        ESTADO_ACTIVO: true, // Predeterminado activo
+        ANTIGUEDAD_RECIBO_CALC: data.antiguedadRecibo?.trim() || null,
+        ANTIGUEDAD_LICENCIAS_CALC: data.antiguedadLicencias?.trim() || null,
+        ESTADO_ACTIVO: data.estadoActivo ?? true,
         ID_REGIMEN_JUBILATORIO: 1, // Régimen default
+        FECHA_INICIO_CREACION_DATOS_PERSONALES: new Date(),
+        USUARIO_CREACION: usuarioId,
+        FECHA_ULTIMA_MODIFICACION: new Date(),
+        USUARIO_ULTIMA_MODIFICACION: usuarioId,
       },
     })
 
@@ -627,9 +656,9 @@ export async function createAgente(
  */
 export async function createJubila(
   data: Partial<JubilacionRecord>,
-  usuarioId: number = 1,
 ): Promise<{ ok: boolean; id?: string; error?: string; record?: JubilacionRecord }> {
   try {
+    const { userId: usuarioId } = await requireAuthenticatedSession()
     if (!data.dni || !data.apellidoNombres) {
       return { ok: false, error: 'DNI y apellido/nombre son obligatorios.' }
     }
@@ -672,6 +701,10 @@ export async function createJubila(
           ANTIGUEDAD_LICENCIAS: null,
           ESTADO_ACTIVO: true,
           ID_REGIMEN_JUBILATORIO: 1, // Régimen default; ajustar según tabla
+          FECHA_INICIO_CREACION_DATOS_PERSONALES: new Date(),
+          USUARIO_CREACION: usuarioId,
+          FECHA_ULTIMA_MODIFICACION: new Date(),
+          USUARIO_ULTIMA_MODIFICACION: usuarioId,
         },
       })
     }
@@ -745,6 +778,7 @@ export async function createJubila(
  */
 export async function deleteJubila(id: string): Promise<{ ok: boolean; error?: string }> {
   try {
+    await requireAuthenticatedSession()
     await prisma.jUBILA.update({
       where: { ID_JUBILA: Number(id) },
       data: { BIT_BORRADO: true },
@@ -781,6 +815,7 @@ export interface AgenteProxJubilacion {
  */
 export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]> {
   try {
+    await requireAuthenticatedSession()
     const hoy = new Date()
     const hace30Dias = new Date(hoy)
     hace30Dias.setDate(hoy.getDate() - 30)
@@ -842,6 +877,7 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
 export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilacion[]> {
   if (!dnis || dnis.length === 0) return []
   try {
+    await requireAuthenticatedSession()
     const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
       where: {
         DNI_AGENTE: { in: dnis },
@@ -882,14 +918,33 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
 /**
  * Actualiza los datos personales editables de un agente existente en
  * DATOS_PERSONALES_AGENTE_JUBILA, identificado por su ID numérico.
- * Solo actualiza los campos que se pasan (cuil, apellidoNombres, telefono,
- * correo, fechaNacimiento). No toca campos calculados por la actualización masiva.
+ * Actualiza todos los campos disponibles en la gestión manual de agentes.
  */
 export async function updateAgenteDatos(
   agenteId: number,
-  data: Pick<JubilacionRecord, 'cuil' | 'apellidoNombres' | 'telefono' | 'correo' | 'fechaNacimiento'>,
+  data: Pick<JubilacionRecord,
+    'cuil' | 'dni' | 'apellidoNombres' | 'sexo' | 'estadoActivo' | 'telefono' |
+    'correo' | 'fechaNacimiento' | 'edadActual' | 'programa' | 'secretaria' |
+    'cargo' | 'antiguedadRecibo' | 'antiguedadLicencias' |
+    'fechaEstimadaJubilacionOrdinaria'
+  >,
 ): Promise<{ ok: boolean; error?: string; record?: JubilacionRecord }> {
   try {
+    const { userId: usuarioId } = await requireAuthenticatedSession()
+    const dni = data.dni.trim()
+    if (!dni) return { ok: false, error: 'El DNI es obligatorio.' }
+    if (data.sexo !== 'Masculino' && data.sexo !== 'Femenino') {
+      return { ok: false, error: 'El Sexo debe ser Masculino o Femenino.' }
+    }
+
+    const existente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findFirst({
+      where: {
+        DNI_AGENTE: dni,
+        NOT: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agenteId },
+      },
+    })
+    if (existente) return { ok: false, error: `Ya existe otro agente registrado con el DNI ${dni}.` }
+
     const partes = (data.apellidoNombres ?? '').trim().split(' ')
     const apellido = partes[0] ?? ''
     const nombre = partes.slice(1).join(' ') || apellido
@@ -897,12 +952,24 @@ export async function updateAgenteDatos(
     const updated = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
       where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agenteId },
       data: {
+        DNI_AGENTE: dni,
         CUIL: data.cuil?.trim() || null,
         APELLIDO_AGENTE: apellido,
         NOMBRE_AGENTE: nombre,
+        SEXO: data.sexo?.trim() || null,
+        ESTADO_ACTIVO: data.estadoActivo,
         NUMERO_TELEFONO: data.telefono?.trim() || null,
         CORREO_ELECTRONICO: data.correo?.trim() || null,
         FECHA_NACIMIENTO: strToDate(data.fechaNacimiento ?? '') ?? undefined,
+        EDAD_ESTIMACION_JUBILACION: data.edadActual ? parseInt(data.edadActual, 10) : null,
+        PROGRAMA: data.programa?.trim() || null,
+        SECRETARIA: data.secretaria?.trim() || null,
+        CARGO: data.cargo?.trim() || null,
+        ANTIGUEDAD_RECIBO_CALC: data.antiguedadRecibo?.trim() || null,
+        ANTIGUEDAD_LICENCIAS_CALC: data.antiguedadLicencias?.trim() || null,
+        FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: strToDate(data.fechaEstimadaJubilacionOrdinaria),
+        FECHA_ULTIMA_MODIFICACION: new Date(),
+        USUARIO_ULTIMA_MODIFICACION: usuarioId,
       },
     })
 

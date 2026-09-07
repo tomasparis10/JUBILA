@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
+import { requireAuthenticatedSession } from '@/lib/auth-session'
 
 // Tipos de archivo permitidos
 const TIPOS_PERMITIDOS = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png']
@@ -23,6 +24,7 @@ export interface ArchivoMeta {
 export async function listarArchivos(jubilaId: number): Promise<ArchivoMeta[]> {
   if (!jubilaId || isNaN(jubilaId)) return []
   try {
+    await requireAuthenticatedSession()
     const archivos = await prisma.aRCHIVO_JUBILACION.findMany({
       where: { ID_JUBILA: jubilaId },
       select: {
@@ -56,10 +58,10 @@ export async function listarArchivos(jubilaId: number): Promise<ArchivoMeta[]> {
 export async function subirArchivos(
   formData: FormData,
   jubilaId: number,
-  usuarioId: number = 1,
 ): Promise<{ ok: boolean; subidos: number; errores: string[] }> {
   const errores: string[] = []
   let subidos = 0
+  const { userId: usuarioId } = await requireAuthenticatedSession()
 
   const files = formData.getAll('archivos') as File[]
 
@@ -116,6 +118,7 @@ export async function eliminarArchivo(
   archivoId: number,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
+    await requireAuthenticatedSession()
     await prisma.aRCHIVO_JUBILACION.delete({
       where: { ID_ARCHIVO: archivoId },
     })

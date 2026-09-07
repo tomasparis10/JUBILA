@@ -113,12 +113,16 @@ export function analyzeDatosPersonales(
       dnisVistos.add(dni)
       dnisEnExcel.add(dni)
     }
+    const existente = dni ? existentes.get(dni) : undefined
 
     // ── Normalizar sexo ─────────────────────────────────────────────────────
     const sexoRaw = getCol(row, 'SEXO')
-    const sexo = normalizeSexo(sexoRaw)
+    const sexoVacio = !String(sexoRaw ?? '').trim()
+    const sexo = sexoVacio && existente
+      ? normalizeSexo(existente.SEXO)
+      : normalizeSexo(sexoRaw)
 
-    if (!sexo) {
+    if (!sexo && !existente) {
       errores.push({
         kind: 'error',
         rowIndex,
@@ -133,7 +137,9 @@ export function analyzeDatosPersonales(
     // ── Normalizar régimen ──────────────────────────────────────────────────
     const nombreRegimenRaw = getCol(row, 'NOMBRE_REGIMEN')
     const regimenVacio = !String(nombreRegimenRaw ?? '').trim()
-    const resolved = resolveRegimenId(nombreRegimenRaw, sexoRaw, regimenes)
+    const resolved = regimenVacio
+      ? null
+      : resolveRegimenId(nombreRegimenRaw, sexo, regimenes)
 
     // Si el régimen viene con un valor pero no pudo resolverse → error (dato sucio o desconocido)
     // Si viene vacío (agentes inactivos sin régimen en VISMA) → se acepta como null (campo nullable en DB)
@@ -149,11 +155,16 @@ export function analyzeDatosPersonales(
       return
     }
 
-    const idRegimen = resolved?.id ?? null
+    const idRegimen = regimenVacio && existente
+      ? existente.ID_REGIMEN_JUBILATORIO
+      : (resolved?.id ?? null)
 
     // ── Normalizar fecha de nacimiento ──────────────────────────────────────
     const fechaNacRaw = getCol(row, 'FECHA_NACIMIENTO')
-    const fechaNac = normalizeDate(fechaNacRaw)
+    const fechaNacVacia = !String(fechaNacRaw ?? '').trim()
+    const fechaNac = fechaNacVacia && existente
+      ? existente.FECHA_NACIMIENTO
+      : normalizeDate(fechaNacRaw)
 
     if (!fechaNac) {
       errores.push({
@@ -168,15 +179,20 @@ export function analyzeDatosPersonales(
     }
 
     // ── Otros campos ────────────────────────────────────────────────────────
-    const nombre = normStr(getCol(row, 'NOMBRE_AGENTE')) || ''
-    const apellido = normStr(getCol(row, 'APELLIDO_AGENTE')) || ''
-    const secretaria = String(getCol(row, 'SECRETARIA') ?? '').trim() || null
-    const programa = String(getCol(row, 'PROGRAMA') ?? '').trim() || null
-    const cargo = String(getCol(row, 'CARGO') ?? '').trim() || null
-    const cuil = String(getCol(row, 'CUIL') ?? '').trim() || null
-    const telefono = String(getCol(row, 'NUMERO_TELEFONO') ?? '').trim() || null
-    const correo = String(getCol(row, 'CORREO_ELECTRONICO') ?? '').trim() || null
-    const estadoActivo = normalizeEstadoActivo(getCol(row, 'ESTADO_ACTIVO'))
+    const preserveText = (raw: unknown, actual: string | null | undefined) =>
+      String(raw ?? '').trim() || actual || ''
+    const nombre = preserveText(getCol(row, 'NOMBRE_AGENTE'), existente?.NOMBRE_AGENTE)
+    const apellido = preserveText(getCol(row, 'APELLIDO_AGENTE'), existente?.APELLIDO_AGENTE)
+    const secretaria = preserveText(getCol(row, 'SECRETARIA'), existente?.SECRETARIA) || null
+    const programa = preserveText(getCol(row, 'PROGRAMA'), existente?.PROGRAMA) || null
+    const cargo = preserveText(getCol(row, 'CARGO'), existente?.CARGO) || null
+    const cuil = preserveText(getCol(row, 'CUIL'), existente?.CUIL) || null
+    const telefono = preserveText(getCol(row, 'NUMERO_TELEFONO'), existente?.NUMERO_TELEFONO) || null
+    const correo = preserveText(getCol(row, 'CORREO_ELECTRONICO'), existente?.CORREO_ELECTRONICO) || null
+    const estadoRaw = getCol(row, 'ESTADO_ACTIVO')
+    const estadoActivo = !String(estadoRaw ?? '').trim() && existente
+      ? existente.ESTADO_ACTIVO
+      : normalizeEstadoActivo(estadoRaw)
 
     // ── Calcular campos derivados ───────────────────────────────────────────
     const regimenRow = regimenes.find((r) => r.ID_REGIMEN_JUBILATORIO === idRegimen)
@@ -192,7 +208,7 @@ export function analyzeDatosPersonales(
         secretaria: secretaria ?? '',
         programa: programa ?? '',
         cargo: cargo ?? '',
-        sexo,
+        sexo: sexo!,
         estadoActivo,
         cuil: cuil ?? '',
         telefono: telefono ?? '',
@@ -205,7 +221,7 @@ export function analyzeDatosPersonales(
     }
 
     // ── Caso B: agente existente ────────────────────────────────────────────
-    const existente = existentes.get(dni)!
+    const existenteActual = existente!
     const diffs: DiffField[] = []
 
     const check = (campo: string, anterior: string, nuevo: string) => {
@@ -217,20 +233,20 @@ export function analyzeDatosPersonales(
       }
     }
 
-    check('NOMBRE_AGENTE', normStr(existente.NOMBRE_AGENTE), nombre)
-    check('APELLIDO_AGENTE', normStr(existente.APELLIDO_AGENTE), apellido)
-    check('FECHA_NACIMIENTO', dateToStr(existente.FECHA_NACIMIENTO), dateToStr(fechaNac))
-    check('SECRETARIA', normStr(existente.SECRETARIA), normStr(secretaria))
-    check('PROGRAMA', normStr(existente.PROGRAMA), normStr(programa))
-    check('CARGO', normStr(existente.CARGO), normStr(cargo))
-    check('SEXO', normStr(existente.SEXO), normStr(sexo))
-    check('ESTADO_ACTIVO', String(existente.ESTADO_ACTIVO), String(estadoActivo))
-    check('CUIL', normStr(existente.CUIL), normStr(cuil))
-    check('NUMERO_TELEFONO', normStr(existente.NUMERO_TELEFONO), normStr(telefono))
-    check('CORREO_ELECTRONICO', normStr(existente.CORREO_ELECTRONICO), normStr(correo))
+    check('NOMBRE_AGENTE', normStr(existenteActual.NOMBRE_AGENTE), normStr(nombre))
+    check('APELLIDO_AGENTE', normStr(existenteActual.APELLIDO_AGENTE), normStr(apellido))
+    check('FECHA_NACIMIENTO', dateToStr(existenteActual.FECHA_NACIMIENTO), dateToStr(fechaNac))
+    check('SECRETARIA', normStr(existenteActual.SECRETARIA), normStr(secretaria))
+    check('PROGRAMA', normStr(existenteActual.PROGRAMA), normStr(programa))
+    check('CARGO', normStr(existenteActual.CARGO), normStr(cargo))
+    check('SEXO', normStr(existenteActual.SEXO), normStr(sexo))
+    check('ESTADO_ACTIVO', String(existenteActual.ESTADO_ACTIVO), String(estadoActivo))
+    check('CUIL', normStr(existenteActual.CUIL), normStr(cuil))
+    check('NUMERO_TELEFONO', normStr(existenteActual.NUMERO_TELEFONO), normStr(telefono))
+    check('CORREO_ELECTRONICO', normStr(existenteActual.CORREO_ELECTRONICO), normStr(correo))
 
     // Comparar régimen (null vs null = sin cambio)
-    const regAnterior = existente.ID_REGIMEN_JUBILATORIO ?? null
+    const regAnterior = existenteActual.ID_REGIMEN_JUBILATORIO ?? null
     const regNuevo = idRegimen
     if (regAnterior !== regNuevo) {
       const anteriorNombre = regAnterior !== null
@@ -366,10 +382,13 @@ export function analyzeCarreraAdministrativa(
 
     // ── FECHA BAJA ──────────────────────────────────────────────────────────
     const fechaBajaRaw = getCol(row, 'FECHA BAJA')
+    const fechaBajaVacia = !String(fechaBajaRaw ?? '').trim()
     const fechaBaja = normalizeDate(fechaBajaRaw) // null si está vacía (fase abierta)
 
     // ── CAUSA BAJA ──────────────────────────────────────────────────────────
-    const causaBaja = String(getCol(row, 'CAUSA BAJA') ?? '').trim() || null
+    const causaBajaRaw = getCol(row, 'CAUSA BAJA')
+    const causaBajaVacia = !String(causaBajaRaw ?? '').trim()
+    const causaBaja = String(causaBajaRaw ?? '').trim() || null
 
     // ── Clave funcional de la fase ──────────────────────────────────────────
     const claveAlta = dateToStr(fechaAlta)
@@ -377,8 +396,8 @@ export function analyzeCarreraAdministrativa(
 
     const candidatas = fases.get(faseClave) ?? []
     const existenteExacta = candidatas.find((fase) =>
-      dateToStr(fase.FECHA_BAJA) === dateToStr(fechaBaja) &&
-      (fase.CAUSA_BAJA ?? '').trim() === (causaBaja ?? '').trim(),
+      (fechaBajaVacia || dateToStr(fase.FECHA_BAJA) === dateToStr(fechaBaja)) &&
+      (causaBajaVacia || (fase.CAUSA_BAJA ?? '').trim() === (causaBaja ?? '').trim()),
     )
 
     // Si la misma fase aparece repetida y una de las filas ya coincide,
@@ -404,16 +423,18 @@ export function analyzeCarreraAdministrativa(
 
     // ── Caso B: fase existente ──────────────────────────────────────────────
     const existente = candidatas[0]
+    const fechaBajaEfectiva = fechaBajaVacia ? existente.FECHA_BAJA : fechaBaja
+    const causaBajaEfectiva = causaBajaVacia ? existente.CAUSA_BAJA : causaBaja
     const diffs: DiffField[] = []
 
     const bajAnt = dateToStr(existente.FECHA_BAJA)
-    const bajNvo = dateToStr(fechaBaja)
+    const bajNvo = dateToStr(fechaBajaEfectiva)
     if (bajAnt !== bajNvo) {
       diffs.push({ campo: 'FECHA_BAJA', anterior: bajAnt || '—', nuevo: bajNvo || '—' })
     }
 
     const causaAnt = (existente.CAUSA_BAJA ?? '').trim()
-    const causaNvo = (causaBaja ?? '').trim()
+    const causaNvo = (causaBajaEfectiva ?? '').trim()
     if (causaAnt !== causaNvo) {
       diffs.push({ campo: 'CAUSA_BAJA', anterior: causaAnt || '—', nuevo: causaNvo || '—' })
     }
@@ -426,8 +447,8 @@ export function analyzeCarreraAdministrativa(
         fechaAltaStr: claveAlta,
         diffs,
         payload: {
-          FECHA_BAJA: fechaBaja ? fechaBaja.toISOString() : null,
-          CAUSA_BAJA: causaBaja,
+          FECHA_BAJA: fechaBajaEfectiva ? fechaBajaEfectiva.toISOString() : null,
+          CAUSA_BAJA: causaBajaEfectiva,
         },
       })
     } else {

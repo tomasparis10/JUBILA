@@ -15,9 +15,11 @@ export interface TrazabilidadEntry {
 
 export interface JubilacionRecord {
   id: string
+  agenteId?: number
   cuil: string
   dni: string
   apellidoNombres: string
+  sexo: string
   estadoActivo: boolean
   trazabilidad: TrazabilidadEntry[]
   telefono: string

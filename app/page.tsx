@@ -1,18 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import LoginPage from '@/components/login-page'
 import Sidebar from '@/components/sidebar'
 import TopBar from '@/components/top-bar'
 import PanelPrincipal from '@/components/panel-principal'
 import InformesAnaliticas from '@/components/informes-analiticas'
 import OperacionesPanel from '@/components/operaciones-panel'
+import { getCurrentSession, logoutUsuario } from '@/app/actions/auth'
 
 type NavSection = 'inicio' | 'operaciones' | 'informes'
 type OpMode = 'agregar-agente' | 'actualizacion-masiva'
 
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState(false)
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
   const [username, setUsername] = useState('')
   const [userId, setUserId] = useState<number>(1)
   const [activeSection, setActiveSection] = useState<NavSection>('inicio')
@@ -26,13 +28,33 @@ export default function App() {
     setLoggedIn(true)
   }
 
-  const handleLogout = () => {
-    setLoggedIn(false)
-    setUsername('')
-    setActiveSection('inicio')
-    setExpandedOp(false)
-    setActiveOp(null)
-    setExternalDni(null)
+  useEffect(() => {
+    let active = true
+    getCurrentSession().then((session) => {
+      if (!active) return
+      if (session.ok && session.username && session.userId != null) {
+        setUsername(session.username)
+        setUserId(session.userId)
+        setLoggedIn(true)
+      } else {
+        setLoggedIn(false)
+      }
+    })
+    return () => { active = false }
+  }, [])
+
+  const handleLogout = async () => {
+    try {
+      await logoutUsuario()
+    } finally {
+      setLoggedIn(false)
+      setUsername('')
+      setUserId(1)
+      setActiveSection('inicio')
+      setExpandedOp(false)
+      setActiveOp(null)
+      setExternalDni(null)
+    }
   }
 
   const handleOpSelect = (op: OpMode) => {
@@ -44,6 +66,14 @@ export default function App() {
   const handleAgenteSelect = (dni: string) => {
     setActiveSection('inicio')
     setExternalDni(dni)
+  }
+
+  if (loggedIn === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#dce8f5]">
+        <Loader2 className="w-7 h-7 animate-spin text-[#1e3a8a]" />
+      </div>
+    )
   }
 
   if (!loggedIn) {

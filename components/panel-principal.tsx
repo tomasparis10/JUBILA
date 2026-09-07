@@ -289,6 +289,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       cuil: '',
       dni: '',
       apellidoNombres: '',
+      sexo: '',
       telefono: '',
       correo: '',
       programa: '',

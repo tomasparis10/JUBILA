@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   RefreshCw, UserCheck, AlertCircle, CheckCircle2,
   Loader2, Clock, Users, X, UserCircle, Save, Search, ArrowRight,
@@ -8,7 +8,7 @@ import {
   Pencil, UserCog,
 } from 'lucide-react'
 import { createAgente, searchAgentes, updateAgenteDatos } from '@/app/actions/agentes'
-import { FormField } from '@/components/form-field'
+import { FormField, SelectField } from '@/components/form-field'
 import { formatCuil, extractDniFromCuil } from '@/lib/format-utils'
 import type { JubilacionRecord } from '@/lib/jubilaciones-data'
 import type { AnalysisResult, AnalyzeApiResponse, CommitApiResponse } from '@/lib/bulk-sync/types'
@@ -24,10 +24,11 @@ interface OperacionesPanelProps {
 function GestionAgentes() {
   // ── Estado del formulario ────────────────────────────────────────────────
   const emptyForm = (): Partial<JubilacionRecord> => ({
-    cuil: '', dni: '', apellidoNombres: '', telefono: '',
+    cuil: '', dni: '', apellidoNombres: '', sexo: '', estadoActivo: true, telefono: '',
     correo: '', fechaNacimiento: '', edadActual: '',
     programa: '', secretaria: '', cargo: '',
     antiguedadRecibo: '', antiguedadLicencias: '',
+    fechaEstimadaJubilacionOrdinaria: '',
   })
 
   const [form, setForm] = useState<Partial<JubilacionRecord>>(emptyForm())
@@ -74,6 +75,8 @@ function GestionAgentes() {
       cuil: agente.cuil,
       dni: agente.dni,
       apellidoNombres: agente.apellidoNombres,
+      sexo: agente.sexo,
+      estadoActivo: agente.estadoActivo,
       telefono: agente.telefono,
       correo: agente.correo,
       fechaNacimiento: agente.fechaNacimiento,
@@ -83,6 +86,7 @@ function GestionAgentes() {
       cargo: agente.cargo,
       antiguedadRecibo: agente.antiguedadRecibo,
       antiguedadLicencias: agente.antiguedadLicencias,
+      fechaEstimadaJubilacionOrdinaria: agente.fechaEstimadaJubilacionOrdinaria,
     })
     setFormError(null)
     setFormSuccess(null)
@@ -94,17 +98,18 @@ function GestionAgentes() {
   const handleSave = async () => {
     setFormError(null)
     setFormSuccess(null)
-    if (!form.dni) { setFormError('El DNI (derivado del CUIL) es obligatorio.'); return }
+    if (!form.dni) { setFormError('El DNI es obligatorio.'); return }
     if (!form.apellidoNombres) { setFormError('El Apellido y Nombres son obligatorios.'); return }
+    if (!form.sexo) { setFormError('Debe seleccionar el Sexo.'); return }
 
     setSaving(true)
     try {
       if (isEditing && editingAgente) {
         // Modo editar: extraer ID numérico del agente
         const rawId = editingAgente.id
-        const numericId = rawId.startsWith('agente-')
+        const numericId = editingAgente.agenteId ?? (rawId.startsWith('agente-')
           ? parseInt(rawId.replace('agente-', ''), 10)
-          : parseInt(rawId, 10)
+          : NaN)
 
         if (isNaN(numericId)) {
           setFormError('No se pudo determinar el ID del agente para editar.')
@@ -113,10 +118,20 @@ function GestionAgentes() {
 
         const result = await updateAgenteDatos(numericId, {
           cuil: form.cuil ?? '',
+          dni: form.dni ?? '',
           apellidoNombres: form.apellidoNombres ?? '',
+          sexo: form.sexo ?? '',
+          estadoActivo: form.estadoActivo ?? true,
           telefono: form.telefono ?? '',
           correo: form.correo ?? '',
           fechaNacimiento: form.fechaNacimiento ?? '',
+          edadActual: form.edadActual ?? '',
+          programa: form.programa ?? '',
+          secretaria: form.secretaria ?? '',
+          cargo: form.cargo ?? '',
+          antiguedadRecibo: form.antiguedadRecibo ?? '',
+          antiguedadLicencias: form.antiguedadLicencias ?? '',
+          fechaEstimadaJubilacionOrdinaria: form.fechaEstimadaJubilacionOrdinaria ?? '',
         })
 
         if (result.ok) {
@@ -124,9 +139,10 @@ function GestionAgentes() {
           // Refrescar la fila en la grilla
           if (result.record) {
             setGridResults((prev) =>
-              prev.map((a) => (a.id === editingAgente.id ? result.record! : a))
+              prev.map((a) => (a.agenteId === editingAgente.agenteId ? result.record! : a))
             )
             setEditingAgente(result.record)
+            setSelectedGridId(result.record.id)
           }
         } else {
           setFormError(result.error ?? 'Error al actualizar.')
@@ -136,6 +152,10 @@ function GestionAgentes() {
         const result = await createAgente(form)
         if (result.ok) {
           setFormSuccess('¡Agente registrado con éxito!')
+          if (result.record) {
+            setGridResults((prev) => [result.record!, ...prev].slice(0, 100))
+            setHasSearched(true)
+          }
           setForm(emptyForm())
           setEditingAgente(null)
           setSelectedGridId(null)
@@ -153,7 +173,6 @@ function GestionAgentes() {
   // ── Búsqueda en la grilla ─────────────────────────────────────────────────
   const handleGridSearch = useCallback(async () => {
     const q = gridSearch.trim()
-    if (!q) return
     setGridLoading(true)
     setGridError(null)
     setHasSearched(true)
@@ -167,6 +186,24 @@ function GestionAgentes() {
     }
   }, [gridSearch])
 
+  useEffect(() => {
+    let active = true
+    setGridLoading(true)
+    searchAgentes('')
+      .then((results) => {
+        if (!active) return
+        setGridResults(results)
+        setHasSearched(true)
+      })
+      .catch(() => {
+        if (active) setGridError('Error al cargar los agentes.')
+      })
+      .finally(() => {
+        if (active) setGridLoading(false)
+      })
+    return () => { active = false }
+  }, [])
+
   return (
     <div className="flex flex-col gap-5" ref={formTopRef}>
       {/* ── Header info ── */}
@@ -178,7 +215,7 @@ function GestionAgentes() {
           </p>
           <p className="text-xs text-slate-500 mt-0.5">
             {isEditing
-              ? 'Modifique los datos y presione Guardar Cambios. Los campos sombreados son de solo lectura.'
+              ? 'Modifique los datos necesarios y presione Guardar Cambios.'
               : 'Complete los datos personales del nuevo agente. El estado se establecerá como ACTIVO por defecto.'}
           </p>
         </div>
@@ -234,10 +271,10 @@ function GestionAgentes() {
             mask="cuil"
           />
           <FormField
-            label="DNI (automático)"
+            label="DNI"
             value={form.dni ?? ''}
+            onChange={(v) => update('dni', v.replace(/\D/g, ''))}
             placeholder="Número de DNI"
-            readOnly
           />
           <FormField
             label="Apellido y Nombres"
@@ -246,6 +283,25 @@ function GestionAgentes() {
             placeholder="Apellido y Nombres"
             className="col-span-2"
             mask="letters"
+          />
+          <SelectField
+            label="Sexo"
+            value={form.sexo ?? ''}
+            onChange={(v) => update('sexo', v)}
+            options={[
+              { value: '', label: 'Seleccionar...' },
+              { value: 'Masculino', label: 'Masculino' },
+              { value: 'Femenino', label: 'Femenino' },
+            ]}
+          />
+          <SelectField
+            label="Estado"
+            value={form.estadoActivo === false ? 'inactivo' : 'activo'}
+            onChange={(v) => setForm((prev) => ({ ...prev, estadoActivo: v === 'activo' }))}
+            options={[
+              { value: 'activo', label: 'Activo' },
+              { value: 'inactivo', label: 'Inactivo' },
+            ]}
           />
           <FormField
             label="Teléfono"
@@ -270,38 +326,45 @@ function GestionAgentes() {
           <FormField
             label="Edad Actual"
             value={form.edadActual ?? ''}
-            placeholder="Auto"
-            readOnly
+            onChange={(v) => update('edadActual', v.replace(/\D/g, ''))}
+            placeholder="Edad"
           />
           <FormField
             label="Programa"
             value={form.programa ?? ''}
+            onChange={(v) => update('programa', v)}
             placeholder="Programa"
-            readOnly
           />
           <FormField
             label="Secretaría"
             value={form.secretaria ?? ''}
+            onChange={(v) => update('secretaria', v)}
             placeholder="Secretaría"
-            readOnly
           />
           <FormField
             label="Cargo"
             value={form.cargo ?? ''}
+            onChange={(v) => update('cargo', v)}
             placeholder="Cargo desempeñado"
-            readOnly
           />
           <FormField
             label="Antigüedad Recibo"
             value={form.antiguedadRecibo ?? ''}
-            placeholder="Calculada automáticamente"
-            readOnly
+            onChange={(v) => update('antiguedadRecibo', v)}
+            placeholder="Ej: 10 años, 2 meses"
           />
           <FormField
             label="Antigüedad Licencias"
             value={form.antiguedadLicencias ?? ''}
-            placeholder="Calculada automáticamente"
-            readOnly
+            onChange={(v) => update('antiguedadLicencias', v)}
+            placeholder="Ej: 10 años, 2 meses"
+          />
+          <FormField
+            label="Fecha Estimada de Jubilación"
+            value={form.fechaEstimadaJubilacionOrdinaria ?? ''}
+            onChange={(v) => update('fechaEstimadaJubilacionOrdinaria', v)}
+            placeholder="dd/mm/aaaa"
+            mask="date"
           />
         </div>
       </div>
@@ -329,7 +392,7 @@ function GestionAgentes() {
         <div className="flex items-center gap-2 mb-1">
           <Users className="w-4 h-4 text-slate-400" />
           <h3 className="text-sm font-bold text-slate-700">Listado de Agentes</h3>
-          <span className="text-xs text-slate-400 ml-auto">Buscá por DNI o Apellido para seleccionar y editar</span>
+          <span className="text-xs text-slate-400 ml-auto">Se muestran hasta 100 agentes. Buscá por DNI o Apellido para filtrar.</span>
         </div>
       </div>
 
@@ -348,11 +411,11 @@ function GestionAgentes() {
         </div>
         <button
           onClick={handleGridSearch}
-          disabled={gridLoading || !gridSearch.trim()}
+          disabled={gridLoading}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition"
         >
           {gridLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-          {gridLoading ? 'Buscando...' : 'Buscar'}
+          {gridLoading ? 'Buscando...' : gridSearch.trim() ? 'Buscar' : 'Mostrar todos'}
         </button>
       </div>
 
@@ -369,7 +432,7 @@ function GestionAgentes() {
         <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
           <Users className="w-3.5 h-3.5 text-slate-400" />
           <span className="text-xs font-bold text-[#1e3a8a] uppercase tracking-widest">
-            {hasSearched ? `${gridResults.length} resultado${gridResults.length !== 1 ? 's' : ''}` : 'Agentes'}
+             {hasSearched ? `${gridResults.length} agente${gridResults.length !== 1 ? 's' : ''}` : 'Agentes'}
           </span>
           {selectedGridId && (
             <span className="ml-auto text-[10px] bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-semibold">
@@ -381,7 +444,7 @@ function GestionAgentes() {
         {!hasSearched ? (
           <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
             <Search className="w-8 h-8 opacity-30" />
-            <p className="text-sm">Ingresá un DNI o Apellido para buscar agentes.</p>
+            <p className="text-sm">Cargando agentes...</p>
           </div>
         ) : gridResults.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">

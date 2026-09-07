@@ -16,11 +16,14 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { calcFechaEstimada, calcEdadActual } from '@/lib/bulk-sync/processors'
+import { calcEdadActual } from '@/lib/bulk-sync/processors'
 import type { AnalysisResult, CommitApiResponse } from '@/lib/bulk-sync/types'
+import { getAuthenticatedSession } from '@/lib/auth-session'
 import {
   calcAntiguedadRecibo,
   calcAntiguedadLicencias,
+  calcEdadEnFecha,
+  calcFechaEstimadaJubilacion,
   type FaseCarrera,
 } from '@/utils/calculosPrevisionales'
 
@@ -40,6 +43,11 @@ function nowStr(): string {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<CommitApiResponse>> {
+  const session = await getAuthenticatedSession()
+  if (!session) {
+    return NextResponse.json({ ok: false, error: 'Sesión inválida o vencida.' }, { status: 401 })
+  }
+
   // ── Prevenir doble ejecución ────────────────────────────────────────────────
   if (isRunning) {
     return NextResponse.json(
@@ -101,7 +109,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
               select: { EDAD_REQUERIDA: true },
             })
             if (regimen) {
-              fechaEstimada = calcFechaEstimada(fechaNac, regimen.EDAD_REQUERIDA)
+              fechaEstimada = null
               edadActual = calcEdadActual(fechaNac)
             }
           }
@@ -126,6 +134,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
               EDAD_ESTIMACION_JUBILACION: edadActual,
               ANTIGUEDAD_RECIBO_CALC: '0 Años, 0 Meses, 0 Días',
               ANTIGUEDAD_LICENCIAS_CALC: '0 Años, 0 Meses, 0 Días',
+              FECHA_INICIO_CREACION_DATOS_PERSONALES: new Date(),
+              USUARIO_CREACION: session.userId,
+              FECHA_ULTIMA_MODIFICACION: new Date(),
+              USUARIO_ULTIMA_MODIFICACION: session.userId,
             },
           })
           dpInsertados++
@@ -151,7 +163,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
                 select: { EDAD_REQUERIDA: true },
               })
               if (regimen) {
-                fechaEstimada = calcFechaEstimada(fechaNac, regimen.EDAD_REQUERIDA)
+                fechaEstimada = undefined
                 edadActual = calcEdadActual(fechaNac)
               }
             }
@@ -179,6 +191,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
                 FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
                 EDAD_ESTIMACION_JUBILACION: edadActual ?? null,
               }),
+              FECHA_ULTIMA_MODIFICACION: new Date(),
+              USUARIO_ULTIMA_MODIFICACION: session.userId,
             },
           })
           dpActualizados++
@@ -225,7 +239,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
     // ── Post-commit: recalcular y persistir derivados para TODOS ─────────────
     // Se ejecuta después de insertar las fases para que la antigüedad incluya
     // también las nuevas carreras de esta importación.
-    await recalcularDerivadosDeTodosLosAgentes()
+    await recalcularDerivadosDeTodosLosAgentes(session.userId)
 
     return NextResponse.json({
       ok: true,
@@ -262,7 +276,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
 // Helpers: recalcular y persistir todos los campos derivados
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function recalcularDerivadosDeTodosLosAgentes(): Promise<void> {
+async function recalcularDerivadosDeTodosLosAgentes(usuarioId: number): Promise<void> {
   const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
     include: {
       REGIMEN_JUBILATORIO: true,
@@ -272,26 +286,35 @@ async function recalcularDerivadosDeTodosLosAgentes(): Promise<void> {
 
   for (const agente of agentes) {
     const fechaNacimiento = new Date(agente.FECHA_NACIMIENTO)
-    const edadActual = calcEdadActual(fechaNacimiento)
-    const fechaEstimada = agente.REGIMEN_JUBILATORIO
-      ? calcFechaEstimada(fechaNacimiento, agente.REGIMEN_JUBILATORIO.EDAD_REQUERIDA)
-      : null
-
     const fases: FaseCarrera[] = (agente.CARRERA_ADMINISTRATIVA ?? []).map((f) => ({
       FECHA_ALTA: f.FECHA_ALTA,
       FECHA_BAJA: f.FECHA_BAJA,
     }))
 
-    const antiguedadRecibo = calcAntiguedadRecibo(fases, fechaEstimada)
+    const fechaEstimada = agente.REGIMEN_JUBILATORIO
+      ? calcFechaEstimadaJubilacion(
+          fechaNacimiento,
+          agente.REGIMEN_JUBILATORIO.EDAD_REQUERIDA,
+          agente.REGIMEN_JUBILATORIO.ANOS_APORTES_REQUERIDOS,
+          fases,
+        )
+      : null
+    const edadEstimada = fechaEstimada
+      ? calcEdadEnFecha(fechaNacimiento, fechaEstimada)
+      : null
+
+    const antiguedadRecibo = calcAntiguedadRecibo(fases)
     const antiguedadLicencias = calcAntiguedadLicencias(fases, fechaEstimada)
 
     await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
       where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA },
       data: {
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
-        EDAD_ESTIMACION_JUBILACION: edadActual,
+        EDAD_ESTIMACION_JUBILACION: edadEstimada,
         ANTIGUEDAD_RECIBO_CALC: antiguedadRecibo,
         ANTIGUEDAD_LICENCIAS_CALC: antiguedadLicencias,
+        FECHA_ULTIMA_MODIFICACION: new Date(),
+        USUARIO_ULTIMA_MODIFICACION: usuarioId,
       },
     })
   }

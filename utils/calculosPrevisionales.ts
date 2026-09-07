@@ -48,14 +48,11 @@ function difEnDias(inicio: Date, fin: Date): number {
 }
 
 // ---------------------------------------------------------------------------
-// A. Antiguedad Recibo (con factor excedente)
+// A. Antiguedad Recibo
 // ---------------------------------------------------------------------------
 
 /**
  * Calcula la antigüedad total sumando los días de cada fase de CARRERA_ADMINISTRATIVA.
- *
- * Regla de excedente: si se proporciona `fechaJubilacion` y el agente trabajó
- * después de esa fecha, los días de excedente se cuentan al 50% (/ 2).
  *
  * - Si FECHA_BAJA es null → fase activa → se usa la fecha actual como límite.
  * - Si FECHA_ALTA es null → la fase se ignora.
@@ -63,7 +60,7 @@ function difEnDias(inicio: Date, fin: Date): number {
  */
 export function calcAntiguedadRecibo(
   fases: FaseCarrera[],
-  fechaJubilacion?: Date | null,
+  _fechaJubilacion?: Date | null,
 ): string {
   if (!fases || fases.length === 0) return '0 Años, 0 Meses, 0 Días'
 
@@ -76,22 +73,7 @@ export function calcAntiguedadRecibo(
     const inicio = new Date(fase.FECHA_ALTA)
     const fin    = fase.FECHA_BAJA ? new Date(fase.FECHA_BAJA) : hoy
 
-    if (fechaJubilacion) {
-      // ── Parte regular: inicio → min(fin, fechaJubilacion) ──────────────────
-      const corte = new Date(Math.min(fin.getTime(), fechaJubilacion.getTime()))
-      if (inicio < corte) {
-        totalDias += difEnDias(inicio, corte)
-      }
-      // ── Parte excedente: fechaJubilacion → fin (si lo supera) ──────────────
-      if (fin > fechaJubilacion) {
-        const inicioExcedente = inicio > fechaJubilacion ? inicio : fechaJubilacion
-        const diasExcedente = difEnDias(inicioExcedente, fin)
-        totalDias += Math.floor(diasExcedente / 2)
-      }
-    } else {
-      // Sin fecha de jubilación: contar todo completo
-      totalDias += difEnDias(inicio, fin)
-    }
+    totalDias += difEnDias(inicio, fin)
   }
 
   return formatDias(totalDias)
@@ -182,4 +164,85 @@ export function calcFechaJubilacion(
   )
 
   return fechaJubilacion
+}
+
+/** Suma días de aportes reales hasta una fecha, sin duplicar fases superpuestas. */
+export function calcDiasAportes(fases: FaseCarrera[], hasta: Date): number {
+  const limite = Date.UTC(hasta.getUTCFullYear(), hasta.getUTCMonth(), hasta.getUTCDate())
+  const intervalos = fases
+    .filter((fase): fase is FaseCarrera & { FECHA_ALTA: Date } => Boolean(fase.FECHA_ALTA))
+    .map((fase) => {
+      const alta = new Date(fase.FECHA_ALTA)
+      const baja = fase.FECHA_BAJA ? new Date(fase.FECHA_BAJA) : hasta
+      const inicio = Date.UTC(alta.getUTCFullYear(), alta.getUTCMonth(), alta.getUTCDate())
+      const finOriginal = Date.UTC(baja.getUTCFullYear(), baja.getUTCMonth(), baja.getUTCDate())
+      return { inicio, fin: Math.min(finOriginal, limite) }
+    })
+    .filter(({ inicio, fin }) => inicio < fin)
+    .sort((a, b) => a.inicio - b.inicio)
+
+  let totalDias = 0
+  let inicioActual: number | null = null
+  let finActual = 0
+
+  for (const intervalo of intervalos) {
+    if (inicioActual == null) {
+      inicioActual = intervalo.inicio
+      finActual = intervalo.fin
+    } else if (intervalo.inicio <= finActual) {
+      finActual = Math.max(finActual, intervalo.fin)
+    } else {
+      totalDias += Math.floor((finActual - inicioActual) / (1000 * 60 * 60 * 24))
+      inicioActual = intervalo.inicio
+      finActual = intervalo.fin
+    }
+  }
+
+  if (inicioActual != null) {
+    totalDias += Math.floor((finActual - inicioActual) / (1000 * 60 * 60 * 24))
+  }
+  return totalDias
+}
+
+function addYearsUTC(fecha: Date, anos: number): Date {
+  const year = fecha.getUTCFullYear() + anos
+  const month = fecha.getUTCMonth()
+  const maxDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+  return new Date(Date.UTC(year, month, Math.min(fecha.getUTCDate(), maxDay)))
+}
+
+/**
+ * Obtiene la primera fecha en que se cumplen edad y aportes del régimen.
+ * Los aportes reales se computan solamente hasta la fecha en que se alcanza la
+ * edad requerida. Desde allí, cada dos días de edad excedente compensan un día
+ * faltante, sin sumar por separado nuevos días trabajados.
+ */
+export function calcFechaEstimadaJubilacion(
+  fechaNacimiento: Date | null | undefined,
+  edadRequerida: number | null | undefined,
+  anosAportesRequeridos: number | null | undefined,
+  fases: FaseCarrera[],
+): Date | null {
+  if (!fechaNacimiento || edadRequerida == null || anosAportesRequeridos == null) return null
+  if (edadRequerida < 0 || anosAportesRequeridos < 0) return null
+
+  const fechaEdadRequerida = addYearsUTC(new Date(fechaNacimiento), edadRequerida)
+  const aportesRequeridos = anosAportesRequeridos * 365
+  const MS_POR_DIA = 1000 * 60 * 60 * 24
+  const aportesAlCumplirEdad = calcDiasAportes(fases, fechaEdadRequerida)
+  const aportesFaltantes = Math.max(0, aportesRequeridos - aportesAlCumplirEdad)
+
+  return new Date(fechaEdadRequerida.getTime() + aportesFaltantes * 2 * MS_POR_DIA)
+}
+
+/** Calcula los años completos cumplidos por una persona en una fecha dada. */
+export function calcEdadEnFecha(fechaNacimiento: Date, fechaEvaluada: Date): number {
+  const nacimiento = new Date(fechaNacimiento)
+  const evaluada = new Date(fechaEvaluada)
+  let edad = evaluada.getUTCFullYear() - nacimiento.getUTCFullYear()
+  const aunNoCumplio = evaluada.getUTCMonth() < nacimiento.getUTCMonth()
+    || (evaluada.getUTCMonth() === nacimiento.getUTCMonth()
+      && evaluada.getUTCDate() < nacimiento.getUTCDate())
+  if (aunNoCumplio) edad--
+  return edad
 }

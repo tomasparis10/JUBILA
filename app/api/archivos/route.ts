@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getAuthenticatedSession } from '@/lib/auth-session'
 
 /**
  * GET /api/archivos?id=<ID_ARCHIVO>
@@ -7,6 +8,10 @@ import { prisma } from '@/lib/prisma'
  * Esta ruta se usa para abrir el visor in-app sin descargar el archivo.
  */
 export async function GET(request: NextRequest) {
+  if (!await getAuthenticatedSession()) {
+    return NextResponse.json({ error: 'Sesión inválida o vencida.' }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const idStr = searchParams.get('id')
 

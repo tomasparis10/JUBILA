@@ -3,9 +3,12 @@ import * as XLSX from 'xlsx'
 import * as fs from 'fs'
 import * as path from 'path'
 import { prisma } from '@/lib/prisma'
+import { getAuthenticatedSession } from '@/lib/auth-session'
 import {
   calcAntiguedadRecibo,
   calcAntiguedadLicencias,
+  calcEdadEnFecha,
+  calcFechaEstimadaJubilacion,
   type FaseCarrera,
 } from '@/utils/calculosPrevisionales'
 
@@ -184,24 +187,39 @@ function obtenerIdRegimen(
  * Recalcula y persiste FECHA_ESTIMADA_JUBILACIÓN_ORDINARIA y EDAD_ESTIMACION_JUBILACION
  * para un agente dado su DNI. Busca REGIMEN_JUBILATORIO y FECHA_NACIMIENTO de la DB.
  */
-async function recalcularCamposDerivados(dni: string): Promise<void> {
+async function recalcularCamposDerivados(dni: string, usuarioId: number): Promise<void> {
   const agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
     where: { DNI_AGENTE: dni },
-    include: { REGIMEN_JUBILATORIO: true },
+    include: {
+      REGIMEN_JUBILATORIO: true,
+      CARRERA_ADMINISTRATIVA: { orderBy: { FECHA_ALTA: 'asc' } },
+    },
   })
   if (!agente || !agente.FECHA_NACIMIENTO) return
 
-  const edadReq = agente.REGIMEN_JUBILATORIO?.EDAD_REQUERIDA ?? null
-  if (edadReq == null) return
-
-  const fechaEstimada = addYearsUTC(agente.FECHA_NACIMIENTO, edadReq)
-  const edadActual = calcEdadUTC(agente.FECHA_NACIMIENTO)
+  const regimen = agente.REGIMEN_JUBILATORIO
+  if (!regimen) return
+  const fases: FaseCarrera[] = (agente.CARRERA_ADMINISTRATIVA ?? []).map((fase) => ({
+    FECHA_ALTA: fase.FECHA_ALTA,
+    FECHA_BAJA: fase.FECHA_BAJA,
+  }))
+  const fechaEstimada = calcFechaEstimadaJubilacion(
+    agente.FECHA_NACIMIENTO,
+    regimen.EDAD_REQUERIDA,
+    regimen.ANOS_APORTES_REQUERIDOS,
+    fases,
+  )
+  const edadEstimada = fechaEstimada
+    ? calcEdadEnFecha(agente.FECHA_NACIMIENTO, fechaEstimada)
+    : null
 
   await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
     where: { DNI_AGENTE: dni },
     data: {
       FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
-      EDAD_ESTIMACION_JUBILACION: edadActual,
+      EDAD_ESTIMACION_JUBILACION: edadEstimada,
+      FECHA_ULTIMA_MODIFICACION: new Date(),
+      USUARIO_ULTIMA_MODIFICACION: usuarioId,
     },
   })
 }
@@ -211,7 +229,7 @@ async function recalcularCamposDerivados(dni: string): Promise<void> {
  * para un agente dado su DNI. Lee las fases de CARRERA_ADMINISTRATIVA y
  * los campos derivados de la DB.
  */
-async function recalcularAntiguedades(dni: string): Promise<void> {
+async function recalcularAntiguedades(dni: string, usuarioId: number): Promise<void> {
   const agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
     where: { DNI_AGENTE: dni },
     include: {
@@ -227,7 +245,7 @@ async function recalcularAntiguedades(dni: string): Promise<void> {
   const fechaJubRaw = agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA
   const fechaJubilacion = fechaJubRaw ? new Date(fechaJubRaw) : null
 
-  const antiguedadRecibo = calcAntiguedadRecibo(fases, fechaJubilacion)
+  const antiguedadRecibo = calcAntiguedadRecibo(fases)
   const antiguedadLicencias = calcAntiguedadLicencias(fases, fechaJubilacion)
 
   await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
@@ -235,6 +253,8 @@ async function recalcularAntiguedades(dni: string): Promise<void> {
     data: {
       ANTIGUEDAD_RECIBO_CALC: antiguedadRecibo,
       ANTIGUEDAD_LICENCIAS_CALC: antiguedadLicencias,
+      FECHA_ULTIMA_MODIFICACION: new Date(),
+      USUARIO_ULTIMA_MODIFICACION: usuarioId,
     },
   })
 }
@@ -242,7 +262,7 @@ async function recalcularAntiguedades(dni: string): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Procesamiento Datos Personales
 // ─────────────────────────────────────────────────────────────────────────────
-async function processDatosPersonales() {
+async function processDatosPersonales(usuarioId: number) {
   const rows = readExcel('DatosPersonales.xlsx')
 
   // Cargar todos los regímenes (con SEXO) para la normalización
@@ -308,6 +328,10 @@ async function processDatosPersonales() {
             ID_REGIMEN_JUBILATORIO: idRegimen,
             FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
             EDAD_ESTIMACION_JUBILACION: edadActual,
+            FECHA_INICIO_CREACION_DATOS_PERSONALES: new Date(),
+            USUARIO_CREACION: usuarioId,
+            FECHA_ULTIMA_MODIFICACION: new Date(),
+            USUARIO_ULTIMA_MODIFICACION: usuarioId,
             ANTIGUEDAD_RECIBO_CALC: '0 Años, 0 Meses, 0 Días',
             ANTIGUEDAD_LICENCIAS_CALC: '0 Años, 0 Meses, 0 Días',
           },
@@ -323,6 +347,7 @@ async function processDatosPersonales() {
       } else {
         const diffs: DiffField[] = []
         const check = (campo: string, anterior: string, nuevo: string) => {
+          if (!nuevo.trim()) return
           if (anterior.trim() !== nuevo.trim()) diffs.push({ campo, anterior, nuevo })
         }
         check('NOMBRE_AGENTE', norm(existente.NOMBRE_AGENTE), nombre)
@@ -333,7 +358,9 @@ async function processDatosPersonales() {
         check('PROGRAMA', norm(existente.PROGRAMA), norm(programa))
         check('CARGO', norm(existente.CARGO), norm(cargo))
         check('SEXO', norm(existente.SEXO), norm(sexo))
-        check('ESTADO_ACTIVO', String(existente.ESTADO_ACTIVO), String(estadoActivo))
+        if (norm(row['ESTADO_ACTIVO'])) {
+          check('ESTADO_ACTIVO', String(existente.ESTADO_ACTIVO), String(estadoActivo))
+        }
         check('CUIL', norm(existente.CUIL), norm(cuil))
         check('NUMERO_TELEFONO', norm(existente.NUMERO_TELEFONO), norm(telefono))
         check('CORREO_ELECTRONICO', norm(existente.CORREO_ELECTRONICO), norm(correo))
@@ -342,6 +369,8 @@ async function processDatosPersonales() {
         const updateData: Record<string, unknown> = {
           FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
           EDAD_ESTIMACION_JUBILACION: edadActual,
+          FECHA_ULTIMA_MODIFICACION: new Date(),
+          USUARIO_ULTIMA_MODIFICACION: usuarioId,
         }
         if (idRegimen !== null) updateData.ID_REGIMEN_JUBILATORIO = idRegimen
 
@@ -385,7 +414,7 @@ async function processDatosPersonales() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Procesamiento Carrera Administrativa
 // ─────────────────────────────────────────────────────────────────────────────
-async function processCarreraAdministrativa() {
+async function processCarreraAdministrativa(usuarioId: number) {
   const rows = readExcel('CarreraAdministrativa.xlsx')
   const nuevas: CarreraNueva[] = []
   const actualizadas: CarreraActualizada[] = []
@@ -472,8 +501,8 @@ async function processCarreraAdministrativa() {
   // Tras procesar carrera, recalcular FECHA_ESTIMADA, EDAD y antigüedades para todos los afectados
   for (const dni of dnisAfectados) {
     try {
-      await recalcularCamposDerivados(dni)
-      await recalcularAntiguedades(dni)
+      await recalcularCamposDerivados(dni, usuarioId)
+      await recalcularAntiguedades(dni, usuarioId)
     } catch {
       // No interrumpir el flujo si falla el recálculo de un agente
     }
@@ -486,10 +515,15 @@ async function processCarreraAdministrativa() {
 // Handler principal
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST() {
+  const session = await getAuthenticatedSession()
+  if (!session) {
+    return NextResponse.json({ ok: false, error: 'Sesión inválida o vencida.' }, { status: 401 })
+  }
+
   try {
     // Ejecución secuencial para evitar contención en el pool y bloqueos de DB
-    const dpData = await processDatosPersonales()
-    const caData = await processCarreraAdministrativa()
+    const dpData = await processDatosPersonales(session.userId)
+    const caData = await processCarreraAdministrativa(session.userId)
     const lastUpdated = nowStr()
 
     // Recalcular antigüedades para agentes afectados solo por DatosPersonales
@@ -501,7 +535,8 @@ export async function POST() {
     for (const dni of dpData.dnisAfectados) {
       if (!carreraDnis.has(dni)) {
         try {
-          await recalcularAntiguedades(dni)
+          await recalcularCamposDerivados(dni, session.userId)
+          await recalcularAntiguedades(dni, session.userId)
         } catch {
           // No interrumpir el flujo
         }

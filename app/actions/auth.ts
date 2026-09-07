@@ -1,6 +1,11 @@
 'use server'
 
 import { prisma } from '@/lib/prisma'
+import {
+  clearSessionCookie,
+  getAuthenticatedSession,
+  setSessionCookie,
+} from '@/lib/auth-session'
 
 export interface LoginResult {
   ok: boolean
@@ -44,12 +49,13 @@ export async function loginUsuario(
     }
 
     // Registrar inicio de sesión
-    await prisma.sESION.create({
+    const sesion = await prisma.sESION.create({
       data: {
         ID_USUARIO: usuario.ID_USUARIO,
         FECHA_HORA_INICIO: new Date(),
       },
     })
+    await setSessionCookie(sesion.ID_SESION)
 
     return {
       ok: true,
@@ -66,19 +72,36 @@ export async function loginUsuario(
 /**
  * Registra el cierre de sesión actualizando FECHA_HORA_FIN en la última sesión activa.
  */
-export async function logoutUsuario(userId: number): Promise<void> {
+export async function logoutUsuario(): Promise<void> {
   try {
-    const sesionActiva = await prisma.sESION.findFirst({
-      where: { ID_USUARIO: userId, FECHA_HORA_FIN: null },
-      orderBy: { FECHA_HORA_INICIO: 'desc' },
-    })
+    const sesionActiva = await getAuthenticatedSession()
     if (sesionActiva) {
       await prisma.sESION.update({
-        where: { ID_SESION: sesionActiva.ID_SESION },
+        where: { ID_SESION: sesionActiva.sessionId },
         data: { FECHA_HORA_FIN: new Date() },
       })
     }
   } catch (error) {
     console.error('[logoutUsuario] Error:', error)
+  } finally {
+    await clearSessionCookie()
+  }
+}
+
+export async function getCurrentSession(): Promise<LoginResult> {
+  try {
+    const session = await getAuthenticatedSession()
+    if (!session) {
+      await clearSessionCookie()
+      return { ok: false }
+    }
+    return {
+      ok: true,
+      username: session.username,
+      userId: session.userId,
+    }
+  } catch (error) {
+    console.error('[getCurrentSession] Error:', error)
+    return { ok: false }
   }
 }
