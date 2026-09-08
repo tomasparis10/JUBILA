@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 
 const SESSION_COOKIE = 'jubila_session'
 const SESSION_DURATION_SECONDS = 8 * 60 * 60
-const SESSION_IDLE_SECONDS = 30 * 60
+const SESSION_IDLE_SECONDS = 6 * 60 * 60
 
 function getSessionSecret(): string {
   const secret = process.env.SESSION_SECRET

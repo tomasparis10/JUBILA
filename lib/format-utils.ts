@@ -36,7 +36,7 @@ export function isValidDateString(val: string): boolean {
   const m = parseInt(mStr, 10)
   const y = parseInt(yStr, 10)
   if (isNaN(d) || isNaN(m) || isNaN(y)) return false
-  if (y < 1900 || y > 2100) return false
+  if (y < 1900 || y > 3000) return false
   if (m < 1 || m > 12) return false
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
   if (d < 1 || d > daysInMonth) return false
@@ -66,7 +66,7 @@ export function getDateValidationError(val: string | null | undefined, touched =
     const d = parseInt(parts[0], 10)
     const m = parseInt(parts[1], 10)
     const y = parseInt(parts[2], 10)
-    if (isNaN(y) || y < 1900 || y > 2100) return 'Año inválido (1900-2100)'
+    if (isNaN(y) || y < 1900 || y > 3000) return 'Año inválido (1900-3000)'
     const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
     if (d < 1 || d > daysInMonth) return `Día inexistente (${d}/${m}/${y})`
     if (!isValidDateString(v)) return 'Fecha inválida (dd/mm/aaaa)'

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import type { JubilacionRecord, RenovProvisoria, TrazabilidadEntry } from '@/lib/jubilaciones-data'
 import { requireAuthenticatedSession } from '@/lib/auth-session'
+import { calcEdadActual } from '@/lib/bulk-sync/resolvers'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ function strToDate(str: string | null | undefined): Date | null {
     month = Math.max(1, Math.min(month, 12))
     day = Math.max(1, Math.min(day, 31))
 
-    if (!isNaN(day) && !isNaN(month) && !isNaN(year) && year >= 1900 && year <= 2100) {
+    if (!isNaN(day) && !isNaN(month) && !isNaN(year) && year >= 1900 && year <= 3000) {
       return new Date(Date.UTC(year, month - 1, day))
     }
   }
@@ -170,7 +171,7 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
     antiguedadRecibo,
     antiguedadLicencias,
     fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
-    edadActual: agente.EDAD_ESTIMACION_JUBILACION != null ? String(agente.EDAD_ESTIMACION_JUBILACION) : '',
+    edadActual: agente.FECHA_NACIMIENTO ? String(calcEdadActual(new Date(agente.FECHA_NACIMIENTO))) : '',
     fechaEstimadaJubilacionOrdinaria,
     beneficio: beneficioActual ? String(beneficioActual.ID_BENEFICIO) : '',
     nroTramite: j.INFORMACION_LABORAL_NUMERO_TRAMITE ?? '',
@@ -235,7 +236,7 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
     antiguedadRecibo,
     antiguedadLicencias,
     fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
-    edadActual: agente.EDAD_ESTIMACION_JUBILACION != null ? String(agente.EDAD_ESTIMACION_JUBILACION) : '',
+    edadActual: agente.FECHA_NACIMIENTO ? String(calcEdadActual(new Date(agente.FECHA_NACIMIENTO))) : '',
     fechaEstimadaJubilacionOrdinaria,
     beneficio: '1',
     nroTramite: '', fBaja: '', nroExpMunRenuncia: '',
@@ -629,7 +630,6 @@ export async function createAgente(
         ANTIGUEDAD_RECIBO: strToDate(data.antiguedadRecibo ?? ''),
         ANTIGUEDAD_LICENCIAS: strToDate(data.antiguedadLicencias ?? ''),
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: strToDate(data.fechaEstimadaJubilacionOrdinaria ?? ''),
-        EDAD_ESTIMACION_JUBILACION: data.edadActual ? parseInt(data.edadActual) : null,
         ANTIGUEDAD_RECIBO_CALC: data.antiguedadRecibo?.trim() || null,
         ANTIGUEDAD_LICENCIAS_CALC: data.antiguedadLicencias?.trim() || null,
         ESTADO_ACTIVO: data.estadoActivo ?? true,
@@ -961,7 +961,6 @@ export async function updateAgenteDatos(
         NUMERO_TELEFONO: data.telefono?.trim() || null,
         CORREO_ELECTRONICO: data.correo?.trim() || null,
         FECHA_NACIMIENTO: strToDate(data.fechaNacimiento ?? '') ?? undefined,
-        EDAD_ESTIMACION_JUBILACION: data.edadActual ? parseInt(data.edadActual, 10) : null,
         PROGRAMA: data.programa?.trim() || null,
         SECRETARIA: data.secretaria?.trim() || null,
         CARGO: data.cargo?.trim() || null,

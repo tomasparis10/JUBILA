@@ -87,6 +87,13 @@ export interface PAVData {
   nroExpPasividad?: string;
   fSolicitud?: string;
   fechaActual?: string;
+  cuil?: string;
+  nroExpMunRenuncia?: string;
+  fBaja?: string;
+  nroResRenCaja?: string;
+  jNroExpCaja?: string;
+  fechaDesdeProv?: string;
+  fechaHastaProv?: string;
 }
 
 // ── 1. FORMULARIO DE ACEPTACIÓN / RECHAZO PAV ────────────────────────────────
@@ -322,6 +329,257 @@ export const PavSolicitud = ({ data }: { data: PAVData }) => {
             FIRMA Y ACLARACION: ------------------------------------------------------------------
           </Text>
         </View>
+
+        {/* Pie de página institucional */}
+        <Text style={styles.footer}>Chacabuco 737 – subsecretaria.capitalhumano@cordoba.gov.ar</Text>
+      </Page>
+    </Document>
+  );
+};
+
+// ── 4. PASE AL ARCHIVO PAV ────────────────────────────────────────────────────
+export const PavPaseArchivo = ({ data }: { data: PAVData }) => {
+  const fechaStr = data.fechaActual || new Date().toLocaleDateString('es-AR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        {/* Logos institucionales centrados y más grandes */}
+        <View style={styles.headerLogoContainer}>
+          <Image src={LOGO_PAV_HEADER} style={styles.headerLogo} />
+        </View>
+
+        {/* Lugar y fecha a la derecha */}
+        <View style={[styles.rightExpBox, { marginBottom: 28 }]}>
+          <Text style={{ fontSize: 9.5, textAlign: 'right' }}>
+            Córdoba, <Text style={styles.bold}>{fechaStr}</Text>.
+          </Text>
+          <Text style={[styles.expText, { marginTop: 6 }]}>
+            Ref. Expediente Nº {data.nroExpPasividad || ''}.
+          </Text>
+        </View>
+
+        {/* Asunto */}
+        <Text style={[styles.bodyText, { fontSize: 10, fontFamily: 'Helvetica-Bold', textAlign: 'justify', marginBottom: 22 }]}>
+          Asunto: &quot;Pasividad Anticipada Voluntaria&quot;
+        </Text>
+
+        {/* Párrafo principal */}
+        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+          Atento a lo manifestado por el agente{' '}
+          <Text style={styles.bold}>{data.nombreCompleto}</Text> -{' '}
+          <Text style={styles.bold}>{data.dni}</Text>, PASE las presentes actuaciones a la SUBDIRECCION DE ATENCION PRESENCIAL para su ARCHIVO.
+        </Text>
+
+        {/* Pie de página institucional */}
+        <Text style={styles.footer}>Chacabuco 737 – subsecretaria.capitalhumano@cordoba.gov.ar</Text>
+      </Page>
+    </Document>
+  );
+};
+
+// ── 5. DESISTIDO PAV ──────────────────────────────────────────────────────────
+export const PavDesistido = ({ data }: { data: PAVData }) => {
+  const fechaStr = data.fechaActual || new Date().toLocaleDateString('es-AR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        {/* Logos institucionales centrados y más grandes */}
+        <View style={styles.headerLogoContainer}>
+          <Image src={LOGO_PAV_HEADER} style={styles.headerLogo} />
+        </View>
+
+        {/* Lugar y fecha a la derecha */}
+        <View style={[styles.rightExpBox, { marginBottom: 28 }]}>
+          <Text style={{ fontSize: 9.5, textAlign: 'right' }}>
+            Córdoba, <Text style={styles.bold}>{fechaStr}</Text>.
+          </Text>
+        </View>
+
+        {/* Asunto */}
+        <Text style={[styles.bodyText, { fontSize: 10, fontFamily: 'Helvetica-Bold', textAlign: 'justify', marginBottom: 22 }]}>
+          Asunto: &quot;Pasividad Anticipada Voluntaria&quot;
+        </Text>
+
+        {/* Párrafo de desistimiento */}
+        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 18 }]}>
+          Por medio del presente me dirijo a Ud. a los efectos de manifestar mi voluntad expresa de DESISTIR del trámite de Pasividad Anticipada Voluntaria (PAV), oportunamente iniciado mediante el Expediente N.º{' '}
+          <Text style={styles.bold}>{data.nroExpPasividad || ''}</Text>, solicitando asimismo el archivo de las presentes actuaciones.
+        </Text>
+
+        {/* Despedida */}
+        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 30 }]}>
+          Sin otro particular, saludo a Ud. atentamente.
+        </Text>
+
+        {/* Bloque de firmas del Agente */}
+        <View style={{ marginBottom: 30 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 16 }}>
+            <Text style={{ width: 130, fontSize: 9.5, fontFamily: 'Helvetica-Bold' }}>Firma</Text>
+            <View style={{ flex: 1, borderBottomWidth: 1, borderBottomColor: '#000' }} />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 16 }}>
+            <Text style={{ width: 130, fontSize: 9.5, fontFamily: 'Helvetica-Bold' }}>Aclaración</Text>
+            <View style={{ flex: 1, borderBottomWidth: 1, borderBottomColor: '#000' }} />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+            <Text style={{ width: 130, fontSize: 9.5, fontFamily: 'Helvetica-Bold' }}>DNI Nº</Text>
+            <View style={{ flex: 1, borderBottomWidth: 1, borderBottomColor: '#000' }} />
+          </View>
+        </View>
+
+        {/* Atte. */}
+        <Text style={[styles.bodyText, { fontSize: 10, marginBottom: 10 }]}>
+          Atte.
+        </Text>
+
+        {/* Pie de página institucional */}
+        <Text style={styles.footer}>Chacabuco 737 – subsecretaria.capitalhumano@cordoba.gov.ar</Text>
+      </Page>
+    </Document>
+  );
+};
+
+// ── 6. RENUNCIA POR RAZONES PARTICULARES (Pase Repartición) ───────────────────
+export const RenunciaRazonesParticulares = ({ data }: { data: PAVData }) => {
+  const fechaStr = data.fechaActual || new Date().toLocaleDateString('es-AR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        {/* Logos institucionales centrados y más grandes */}
+        <View style={styles.headerLogoContainer}>
+          <Image src={LOGO_PAV_HEADER} style={styles.headerLogo} />
+        </View>
+
+        {/* Lugar y fecha a la derecha */}
+        <View style={[styles.rightExpBox, { marginBottom: 24 }]}>
+          <Text style={{ fontSize: 9.5, textAlign: 'right' }}>
+            Córdoba, <Text style={styles.bold}>{fechaStr}</Text>.-
+          </Text>
+          <Text style={[styles.expText, { marginTop: 6 }]}>
+            Expediente Nº: {data.nroExpMunRenuncia || ''}.-
+          </Text>
+        </View>
+
+        {/* Párrafo de renuncia */}
+        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 18 }]}>
+          Atento a la Renuncia por Razones Particulares presentada por el Agente{' '}
+          <Text style={styles.bold}>{data.nombreCompleto}</Text>, CUIL Nº:{' '}
+          <Text style={styles.bold}>{data.cuil || ''}</Text>, CARGO:{' '}
+          <Text style={styles.bold}>{data.cargo || ''}</Text>, dependiente de la{' '}
+          <Text style={styles.bold}>{data.programa || ''}</Text> a partir de{' '}
+          <Text style={styles.bold}>{data.fBaja || ''}</Text>
+        </Text>
+
+        {/* Se informa */}
+        <Text style={[styles.bodyText, { marginTop: 8, fontSize: 10 }]}>
+          Se informa:
+        </Text>
+
+        {/* Punto 1 */}
+        <Text style={[styles.bodyText, { marginTop: 10, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+          1)  Que la renuncia se encuadra en las disposiciones del Art. 40º y 41º de la Ordenanza 7244/80 (Decreto Reglamentario Nº 15975-A-82).
+        </Text>
+
+        {/* Punto 2 */}
+        <Text style={[styles.bodyText, { marginTop: 12, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+          2)  Se sugiere, al momento del dictado de la Resolución correspondiente, que disponga la Baja del agente, se exprese que: &quot;Por la Subsecretaría de Capital Humano se procederá al pago de la liquidación final del agente en cuestión&quot;.
+        </Text>
+
+        {/* Párrafo final */}
+        <Text style={[styles.bodyText, { marginTop: 14, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+          Que la renuncia corresponde aceptarla a partir de la fecha mencionada ut supra y en el estado de las presentes actuaciones PASEN las mismas al Dirección General de ART y Control Legal para Control Técnico de legalidad.
+        </Text>
+
+        {/* Atentamente */}
+        <Text style={[styles.bodyText, { marginTop: 26, fontSize: 10 }]}>
+          Atentamente.
+        </Text>
+
+        {/* Pie de página institucional */}
+        <Text style={styles.footer}>Chacabuco 737 – subsecretaria.capitalhumano@cordoba.gov.ar</Text>
+      </Page>
+    </Document>
+  );
+};
+
+// ── 7. INVALIDEZ PROVISORIA (Pase Interno) ────────────────────────────────────
+export const InvalidesProvisoria = ({ data }: { data: PAVData }) => {
+  const fechaStr = data.fechaActual || new Date().toLocaleDateString('es-AR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        {/* Logos institucionales centrados y más grandes */}
+        <View style={styles.headerLogoContainer}>
+          <Image src={LOGO_PAV_HEADER} style={styles.headerLogo} />
+        </View>
+
+        {/* Lugar y fecha a la derecha */}
+        <View style={[styles.rightExpBox, { marginBottom: 24 }]}>
+          <Text style={{ fontSize: 9.5, textAlign: 'right' }}>
+            Córdoba, <Text style={styles.bold}>{fechaStr}</Text>.-
+          </Text>
+          <Text style={[styles.expText, { marginTop: 6 }]}>
+            Expediente Nº: {data.nroExpMunRenuncia || ''}.-
+          </Text>
+        </View>
+
+        {/* Párrafo de renuncia */}
+        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 14 }]}>
+          Atento a la renuncia presentada por el Agente{' '}
+          <Text style={styles.bold}>{data.nombreCompleto}</Text>, CUIL Nº:{' '}
+          <Text style={styles.bold}>{data.cuil || ''}</Text>, CARGO:{' '}
+          <Text style={styles.bold}>{data.cargo || ''}</Text> dependiente de la{' '}
+          <Text style={styles.bold}>{data.programa || ''}</Text> considerando:
+        </Text>
+
+        {/* Párrafo resolución caja */}
+        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 14 }]}>
+          Que mediante Resolución Serie &quot;A&quot; Nº:{' '}
+          <Text style={styles.bold}>{data.nroResRenCaja || ''}</Text>, de fecha 27 de julio de 2026 dictada por la Caja de Jubilaciones, Pensiones y Retiros de Córdoba mediante Expediente Nº J-{' '}
+          <Text style={styles.bold}>{data.jNroExpCaja || ''}</Text>, deberá aceptarse la RENUNCIA a los fines de acogerse al Beneficio de la JUBILACIÓN POR INVALIDEZ EN FORMA PROVISORIA a partir del{' '}
+          <Text style={styles.bold}>{data.fechaDesdeProv || ''}</Text> y cuyo vencimiento operará con fecha{' '}
+          <Text style={styles.bold}>{data.fechaHastaProv || ''}</Text>.
+        </Text>
+
+        {/* Se informa */}
+        <Text style={[styles.bodyText, { marginTop: 8, fontSize: 10 }]}>
+          Se informa:
+        </Text>
+
+        {/* Punto 1 */}
+        <Text style={[styles.bodyText, { marginTop: 10, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+          Que la renuncia se encuadra en las disposiciones del Art. 40º y 41º de la Ordenanza 7244/80 (Decreto Reglamentario Nº 15975-A-82).
+        </Text>
+
+        {/* Párrafo final */}
+        <Text style={[styles.bodyText, { marginTop: 14, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+          Que la renuncia corresponde aceptarla a partir de la fecha mencionada ut supra y en el estado de las presentes actuaciones PASEN al Dirección General de ART y Control Legal para Control Técnico de legalidad.
+        </Text>
+
+        {/* Atentamente */}
+        <Text style={[styles.bodyText, { marginTop: 26, fontSize: 10 }]}>
+          Atentamente.
+        </Text>
 
         {/* Pie de página institucional */}
         <Text style={styles.footer}>Chacabuco 737 – subsecretaria.capitalhumano@cordoba.gov.ar</Text>

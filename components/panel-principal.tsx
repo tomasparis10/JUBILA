@@ -17,7 +17,7 @@ import { FormField, SelectField, SectionCard } from '@/components/form-field'
 import { formatExpediente, formatDate, formatCuil, extractDniFromCuil, getDateValidationError } from '@/lib/format-utils'
 import { searchAgentes, updateJubila, createJubila, createAgente, getLastRecord } from '@/app/actions/agentes'
 import { GestorArchivos } from '@/components/gestor-archivos'
-import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud } from '@/components/pdf/PAVForms'
+import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud, PavPaseArchivo, PavDesistido, RenunciaRazonesParticulares, InvalidesProvisoria } from '@/components/pdf/PAVForms'
 
 // Normalize a string: lowercase + remove diacritics
 function normalize(str: string): string {
@@ -477,24 +477,52 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
 
     // Validar datos requeridos según el formulario
     const missing: string[] = []
-    if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
-    if (!selected.dni?.trim()) missing.push('• DNI')
-    if (!selected.nroExpPasividad?.trim()) missing.push('• Número Expediente Pasividad')
-    if (!selected.fSolicitud?.trim()) missing.push('• Fecha Solicitud de Pasividad')
 
-    if (action === 'pav-aceptacion') {
-      if (!selected.cargo?.trim()) missing.push('• Cargo')
-      if (!selected.programa?.trim()) missing.push('• Repartición / Programa')
-    } else if (action === 'pav-pase') {
-      if (!selected.secretaria?.trim()) missing.push('• Secretaría')
-      if (!selected.cargo?.trim()) missing.push('• Cargo')
-    }
+    // Última fila de renovaciones con datos (para Pase Interno / Invalidez Provisoria)
+    const ultimaRenovacion = [...selected.renovaciones]
+      .reverse()
+      .find((rv) => rv.fechaDesdeExp?.trim() || rv.fechaHastaExp?.trim() || rv.nroResRenov?.trim() || rv.nroExpMun?.trim() || rv.nroDcto?.trim())
 
-    // Validar si la fecha de solicitud tiene un formato inválido
-    if (selected.fSolicitud?.trim()) {
-      const dateErr = getDateValidationError(selected.fSolicitud, true)
-      if (dateErr) {
-        missing.push(`• Fecha Solicitud de Pasividad (${dateErr})`)
+    if (action === 'pase-reparticion') {
+      // Renuncia por Razones Particulares: datos personales + información laboral
+      if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
+      if (!selected.cuil?.trim()) missing.push('• CUIL')
+      if (!selected.cargo?.trim()) missing.push('• Cargo')
+      if (!selected.programa?.trim()) missing.push('• Programa')
+      if (!selected.nroExpMunRenuncia?.trim()) missing.push('• Nº Exp. Mun. Renuncia (Información Laboral)')
+      if (!selected.fBaja?.trim()) missing.push('• Fecha Baja (Información Laboral)')
+    } else if (action === 'pase-interno') {
+      // Invalidez Provisoria: datos personales + información laboral + renovaciones
+      if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
+      if (!selected.cuil?.trim()) missing.push('• CUIL')
+      if (!selected.cargo?.trim()) missing.push('• Cargo')
+      if (!selected.programa?.trim()) missing.push('• Programa')
+      if (!selected.nroExpMunRenuncia?.trim()) missing.push('• Nº Exp. Mun. Renuncia (Información Laboral)')
+      if (!selected.nroResRenCaja?.trim()) missing.push('• Nº Res. Caja (Información Laboral)')
+      if (!selected.jNroExpCaja?.trim()) missing.push('• J. Nº Exp. Caja (Información Laboral)')
+      if (!ultimaRenovacion?.fechaDesdeExp?.trim()) missing.push('• Fecha Desde (última renovación provisoria)')
+      if (!ultimaRenovacion?.fechaHastaExp?.trim()) missing.push('• Fecha Hasta (última renovación provisoria)')
+    } else {
+      // Formularios PAV: datos personales + expediente pasividad + fecha solicitud
+      if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
+      if (!selected.dni?.trim()) missing.push('• DNI')
+      if (!selected.nroExpPasividad?.trim()) missing.push('• Número Expediente Pasividad')
+      if (!selected.fSolicitud?.trim()) missing.push('• Fecha Solicitud de Pasividad')
+
+      if (action === 'pav-aceptacion') {
+        if (!selected.cargo?.trim()) missing.push('• Cargo')
+        if (!selected.programa?.trim()) missing.push('• Repartición / Programa')
+      } else if (action === 'pav-pase') {
+        if (!selected.secretaria?.trim()) missing.push('• Secretaría')
+        if (!selected.cargo?.trim()) missing.push('• Cargo')
+      }
+
+      // Validar si la fecha de solicitud tiene un formato inválido
+      if (selected.fSolicitud?.trim()) {
+        const dateErr = getDateValidationError(selected.fSolicitud, true)
+        if (dateErr) {
+          missing.push(`• Fecha Solicitud de Pasividad (${dateErr})`)
+        }
       }
     }
 
@@ -509,11 +537,18 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       const pavData = {
         nombreCompleto: selected.apellidoNombres,
         dni: selected.dni,
+        cuil: selected.cuil,
         cargo: selected.cargo,
         programa: selected.programa,
         secretaria: selected.secretaria,
         nroExpPasividad: selected.nroExpPasividad,
         fSolicitud: selected.fSolicitud,
+        nroExpMunRenuncia: selected.nroExpMunRenuncia,
+        fBaja: selected.fBaja,
+        nroResRenCaja: selected.nroResRenCaja,
+        jNroExpCaja: selected.jNroExpCaja,
+        fechaDesdeProv: ultimaRenovacion?.fechaDesdeExp ?? '',
+        fechaHastaProv: ultimaRenovacion?.fechaHastaExp ?? '',
       }
       let doc: React.ReactElement
       let filename = ''
@@ -523,6 +558,18 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       } else if (action === 'pav-aceptacion') {
         doc = <PavAceptacionRechazo data={pavData} />
         filename = `PAV_Aceptacion_${selected.dni}.pdf`
+      } else if (action === 'pav-pase-archivo') {
+        doc = <PavPaseArchivo data={pavData} />
+        filename = `PAV_PaseAlArchivo_${selected.dni}.pdf`
+      } else if (action === 'pav-desistido') {
+        doc = <PavDesistido data={pavData} />
+        filename = `PAV_Desistido_${selected.dni}.pdf`
+      } else if (action === 'pase-reparticion') {
+        doc = <RenunciaRazonesParticulares data={pavData} />
+        filename = `PaseReparticion_${selected.dni}.pdf`
+      } else if (action === 'pase-interno') {
+        doc = <InvalidesProvisoria data={pavData} />
+        filename = `PaseInterno_${selected.dni}.pdf`
       } else {
         doc = <PavPaseSecretaria data={pavData} />
         filename = `PAV_PaseSecretaria_${selected.dni}.pdf`

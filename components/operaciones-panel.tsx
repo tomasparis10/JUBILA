@@ -328,6 +328,7 @@ function GestionAgentes() {
             value={form.edadActual ?? ''}
             onChange={(v) => update('edadActual', v.replace(/\D/g, ''))}
             placeholder="Edad"
+            readOnly={true}
           />
           <FormField
             label="Programa"
