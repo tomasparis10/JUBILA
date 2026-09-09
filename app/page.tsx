@@ -8,9 +8,10 @@ import TopBar from '@/components/top-bar'
 import PanelPrincipal from '@/components/panel-principal'
 import InformesAnaliticas from '@/components/informes-analiticas'
 import OperacionesPanel from '@/components/operaciones-panel'
+import ProxJubilacionesPanel from '@/components/prox-jubilaciones-widget'
 import { getCurrentSession, logoutUsuario } from '@/app/actions/auth'
 
-type NavSection = 'inicio' | 'operaciones' | 'informes'
+type NavSection = 'inicio' | 'operaciones' | 'informes' | 'prox-jubilar'
 type OpMode = 'agregar-agente' | 'actualizacion-masiva'
 
 export default function App() {
@@ -93,7 +94,6 @@ export default function App() {
         onToggleOp={() => setExpandedOp((v) => !v)}
         activeOp={activeOp}
         onOpSelect={handleOpSelect}
-        onAgenteSelect={handleAgenteSelect}
       />
 
       {/* Right side: topbar + main */}
@@ -118,6 +118,12 @@ export default function App() {
         {activeSection === 'informes' && (
           <main className="flex-1 overflow-y-auto">
             <InformesAnaliticas />
+          </main>
+        )}
+
+        {activeSection === 'prox-jubilar' && (
+          <main className="flex-1 overflow-y-auto p-6">
+            <ProxJubilacionesPanel onAgenteClick={handleAgenteSelect} />
           </main>
         )}
       </div>

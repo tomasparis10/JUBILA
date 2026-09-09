@@ -211,11 +211,17 @@ function addYearsUTC(fecha: Date, anos: number): Date {
   return new Date(Date.UTC(year, month, Math.min(fecha.getUTCDate(), maxDay)))
 }
 
+/** Edad (en años) a la que corresponde la jubilación por edad avanzada. */
+const EDAD_AVANZADA = 70
+
 /**
  * Obtiene la primera fecha en que se cumplen edad y aportes del régimen.
  * Los aportes reales se computan solamente hasta la fecha en que se alcanza la
  * edad requerida. Desde allí, cada dos días de edad excedente compensan un día
  * faltante, sin sumar por separado nuevos días trabajados.
+ *
+ * Regla de edad avanzada: si la fecha resultante supera el 70° cumpleaños del
+ * agente, la estimación se trunca a la fecha en que cumple 70 años.
  */
 export function calcFechaEstimadaJubilacion(
   fechaNacimiento: Date | null | undefined,
@@ -232,7 +238,10 @@ export function calcFechaEstimadaJubilacion(
   const aportesAlCumplirEdad = calcDiasAportes(fases, fechaEdadRequerida)
   const aportesFaltantes = Math.max(0, aportesRequeridos - aportesAlCumplirEdad)
 
-  return new Date(fechaEdadRequerida.getTime() + aportesFaltantes * 2 * MS_POR_DIA)
+  const fechaCalculada = new Date(fechaEdadRequerida.getTime() + aportesFaltantes * 2 * MS_POR_DIA)
+  const fechaEdadAvanzada = addYearsUTC(new Date(fechaNacimiento), EDAD_AVANZADA)
+
+  return fechaCalculada > fechaEdadAvanzada ? fechaEdadAvanzada : fechaCalculada
 }
 
 /** Calcula los años completos cumplidos por una persona en una fecha dada. */

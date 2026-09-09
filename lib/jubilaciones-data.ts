@@ -94,11 +94,11 @@ export const BENEFICIO_INVALIDEZ_PROVISORIA = '3'
 export type BtnExtra = { label: string; icon: string; action?: string }
 
 export const BOTONES_POR_BENEFICIO: Record<string, BtnExtra[]> = {
-  '1': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
-  '2': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
+  '1': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
+  '2': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
   '3': [{ label: 'Renuncia Provisoria', icon: 'printer' }, { label: 'Pase Interno', icon: 'send', action: 'pase-interno' }],
-  '4': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
-  '5': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
+  '4': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
+  '5': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
   '6': [],
   '7': [],
   '8': [],
@@ -115,9 +115,9 @@ export const BOTONES_POR_BENEFICIO: Record<string, BtnExtra[]> = {
   '13': [],
   '14': [],
   '15': [{ label: 'Pase Interno', icon: 'send', action: 'pase-interno' }],
-  '16': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
+  '16': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición RRP', icon: 'send', action: 'pase-reparticion-rrp' }],
   '17': [],
-  '18': [{ label: 'Renuncia', icon: 'printer' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
+  '18': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
 }
 
 // Beneficios "activos" (agente activo = verde en header)

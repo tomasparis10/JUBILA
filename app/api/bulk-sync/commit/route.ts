@@ -95,27 +95,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
       async (tx) => {
         // ────────────────────────────────────────────────────────────────────
         // PASO 1: Insertar nuevos agentes en DATOS_PERSONALES_AGENTE_JUBILA
+        // (batch: createMany en lugar de insert 1x1)
         // ────────────────────────────────────────────────────────────────────
-        for (const row of dp.nuevas) {
-          const fechaNac = new Date(row.fechaNacimientoISO)
-
-          // Calcular campos derivados
-          let fechaEstimada: Date | null = null
-          let edadActual: number | null = null
-          if (row.idRegimen) {
-            // Obtener EDAD_REQUERIDA para calcular fecha estimada
-            const regimen = await tx.rEGIMEN_JUBILATORIO.findUnique({
-              where: { ID_REGIMEN_JUBILATORIO: row.idRegimen },
-              select: { EDAD_REQUERIDA: true },
-            })
-            if (regimen) {
-              fechaEstimada = null
-              edadActual = calcEdadActual(fechaNac)
-            }
-          }
-
-          await tx.dATOS_PERSONALES_AGENTE_JUBILA.create({
-            data: {
+        if (dp.nuevas.length > 0) {
+          const nuevosData = dp.nuevas.map((row) => {
+            const fechaNac = new Date(row.fechaNacimientoISO)
+            return {
               // El schema permite NULL para conservar filas sin DNI.
               DNI_AGENTE: row.dni as string,
               NOMBRE_AGENTE: row.nombre,
@@ -130,48 +115,32 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
               NUMERO_TELEFONO: row.telefono || null,
               CORREO_ELECTRONICO: row.correo || null,
               ID_REGIMEN_JUBILATORIO: row.idRegimen,
-              FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
-              EDAD_ESTIMACION_JUBILACION: edadActual,
+              // Los derivados se recalculan al finalizar la carga (post-commit)
+              FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: null,
+              EDAD_ESTIMACION_JUBILACION: row.idRegimen ? calcEdadActual(fechaNac) : null,
               ANTIGUEDAD_RECIBO_CALC: '0 Años, 0 Meses, 0 Días',
               ANTIGUEDAD_LICENCIAS_CALC: '0 Años, 0 Meses, 0 Días',
               FECHA_INICIO_CREACION_DATOS_PERSONALES: new Date(),
               USUARIO_CREACION: session.userId,
               FECHA_ULTIMA_MODIFICACION: new Date(),
               USUARIO_ULTIMA_MODIFICACION: session.userId,
-            },
+            }
           })
-          dpInsertados++
+          await tx.dATOS_PERSONALES_AGENTE_JUBILA.createMany({ data: nuevosData })
+          dpInsertados = nuevosData.length
         }
 
         // ────────────────────────────────────────────────────────────────────
         // PASO 2: Actualizar agentes existentes en DATOS_PERSONALES_AGENTE_JUBILA
         // Los campos derivados se recalculan para todos al finalizar la carga.
         // ────────────────────────────────────────────────────────────────────
+        // PASO 2: Actualizar agentes existentes en DATOS_PERSONALES_AGENTE_JUBILA
+        // Los derivados (edad estimada, fecha estimada, antigüedades) se recalculan
+        // para TODOS en el post-commit, por lo que aquí no se consulta el régimen
+        // (elimina el findUnique 1x1 por fila, fuente del cuello de botella).
         for (const row of dp.actualizadas) {
           const fechaNac = new Date(row.payload.FECHA_NACIMIENTO)
 
-          // Recalcular campos derivados si cambió régimen o fecha de nacimiento
-          let fechaEstimada: Date | undefined = undefined
-          let edadActual: number | undefined = undefined
-          const regimenCambio = row.diffs.some((d) => d.campo === 'REGIMEN_JUBILATORIO')
-          const fechaNacCambio = row.diffs.some((d) => d.campo === 'FECHA_NACIMIENTO')
-
-          if (regimenCambio || fechaNacCambio) {
-            if (row.payload.ID_REGIMEN_JUBILATORIO) {
-              const regimen = await tx.rEGIMEN_JUBILATORIO.findUnique({
-                where: { ID_REGIMEN_JUBILATORIO: row.payload.ID_REGIMEN_JUBILATORIO },
-                select: { EDAD_REQUERIDA: true },
-              })
-              if (regimen) {
-                fechaEstimada = undefined
-                edadActual = calcEdadActual(fechaNac)
-              }
-            }
-          }
-
-          // Construir payload de update con solo los campos que cambiaron
-          // + campos derivados si corresponde
-          // NUNCA incluir ANTIGUEDAD_RECIBO, ANTIGUEDAD_LICENCIAS en este UPDATE
           await tx.dATOS_PERSONALES_AGENTE_JUBILA.update({
             where: { DNI_AGENTE: row.dni },
             data: {
@@ -187,10 +156,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
               NUMERO_TELEFONO: row.payload.NUMERO_TELEFONO,
               CORREO_ELECTRONICO: row.payload.CORREO_ELECTRONICO,
               ID_REGIMEN_JUBILATORIO: row.payload.ID_REGIMEN_JUBILATORIO,
-              ...(fechaEstimada !== undefined && {
-                FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
-                EDAD_ESTIMACION_JUBILACION: edadActual ?? null,
-              }),
               FECHA_ULTIMA_MODIFICACION: new Date(),
               USUARIO_ULTIMA_MODIFICACION: session.userId,
             },
@@ -200,18 +165,19 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
 
         // ────────────────────────────────────────────────────────────────────
         // PASO 3: Insertar nuevas fases en CARRERA_ADMINISTRATIVA
+        // (batch: createMany)
         // ────────────────────────────────────────────────────────────────────
-        for (const row of ca.nuevas) {
-          await tx.cARRERA_ADMINISTRATIVA.create({
-            data: {
+        if (ca.nuevas.length > 0) {
+          await tx.cARRERA_ADMINISTRATIVA.createMany({
+            data: ca.nuevas.map((row) => ({
               DOCUMENTO_EMPLEADO: row.dni,
               FECHA_ALTA: new Date(row.fechaAltaISO),
               FECHA_BAJA: row.fechaBajaISO ? new Date(row.fechaBajaISO) : null,
               CAUSA_BAJA: row.causaBaja,
               // FECHA_CREACION tiene DEFAULT NOW() en la DB
-            },
+            })),
           })
-          caInsertadas++
+          caInsertadas = ca.nuevas.length
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -232,7 +198,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
         }
       },
       {
-        timeout: 90_000, // 90 segundos máximo para la transacción
+        timeout: 300_000, // 5 minutos máximo para la transacción de escritura
       },
     )
 
@@ -284,6 +250,8 @@ async function recalcularDerivadosDeTodosLosAgentes(usuarioId: number): Promise<
     },
   })
 
+  const updates: Promise<unknown>[] = []
+
   for (const agente of agentes) {
     const fechaNacimiento = new Date(agente.FECHA_NACIMIENTO)
     const fases: FaseCarrera[] = (agente.CARRERA_ADMINISTRATIVA ?? []).map((f) => ({
@@ -306,16 +274,25 @@ async function recalcularDerivadosDeTodosLosAgentes(usuarioId: number): Promise<
     const antiguedadRecibo = calcAntiguedadRecibo(fases)
     const antiguedadLicencias = calcAntiguedadLicencias(fases, fechaEstimada)
 
-    await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
-      where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA },
-      data: {
-        FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
-        EDAD_ESTIMACION_JUBILACION: edadEstimada,
-        ANTIGUEDAD_RECIBO_CALC: antiguedadRecibo,
-        ANTIGUEDAD_LICENCIAS_CALC: antiguedadLicencias,
-        FECHA_ULTIMA_MODIFICACION: new Date(),
-        USUARIO_ULTIMA_MODIFICACION: usuarioId,
-      },
-    })
+    updates.push(
+      prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
+        where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA },
+        data: {
+          FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: fechaEstimada,
+          EDAD_ESTIMACION_JUBILACION: edadEstimada,
+          ANTIGUEDAD_RECIBO_CALC: antiguedadRecibo,
+          ANTIGUEDAD_LICENCIAS_CALC: antiguedadLicencias,
+          FECHA_ULTIMA_MODIFICACION: new Date(),
+          USUARIO_ULTIMA_MODIFICACION: usuarioId,
+        },
+      }),
+    )
+  }
+
+  // Ejecutar por lotes concurrentes (el pool de Prisma acota la concurrencia)
+  // en lugar de 1 update secuencial por agente.
+  const TAMANIO_LOTE = 200
+  for (let i = 0; i < updates.length; i += TAMANIO_LOTE) {
+    await Promise.all(updates.slice(i, i + TAMANIO_LOTE))
   }
 }

@@ -7,7 +7,7 @@ import {
   FileText, Database, Upload, ChevronDown, ChevronUp, ShieldAlert,
   Pencil, UserCog,
 } from 'lucide-react'
-import { createAgente, searchAgentes, updateAgenteDatos } from '@/app/actions/agentes'
+import { createAgente, searchAgentes, updateAgenteDatos, getRegimenes, getRegimenDeAgente, type RegimenOption } from '@/app/actions/agentes'
 import { FormField, SelectField } from '@/components/form-field'
 import { formatCuil, extractDniFromCuil } from '@/lib/format-utils'
 import type { JubilacionRecord } from '@/lib/jubilaciones-data'
@@ -47,6 +47,25 @@ function GestionAgentes() {
 
   const formTopRef = useRef<HTMLDivElement>(null)
 
+  // ── Regímenes jubilatorios disponibles ───────────────────────────────────
+  const [regimenes, setRegimenes] = useState<RegimenOption[]>([])
+  const [regimenId, setRegimenId] = useState<string>('')
+
+  useEffect(() => {
+    getRegimenes().then((list) => setRegimenes(list))
+  }, [])
+
+  // Regímenes filtrados según el sexo seleccionado
+  const regimenesFiltrados = regimenes.filter(
+    (r) => !r.sexo || r.sexo === (form.sexo ?? '')
+  )
+
+  const handleSexoChange = (v: string) => {
+    update('sexo', v)
+    // Si el sexo cambia, el régimen seleccionado podría no corresponder: limpiar
+    setRegimenId('')
+  }
+
   // ── Modo edición vs creación ─────────────────────────────────────────────
   const isEditing = editingAgente !== null
 
@@ -63,6 +82,7 @@ function GestionAgentes() {
     setForm(emptyForm())
     setEditingAgente(null)
     setSelectedGridId(null)
+    setRegimenId('')
     setFormError(null)
     setFormSuccess(null)
   }
@@ -88,8 +108,13 @@ function GestionAgentes() {
       antiguedadLicencias: agente.antiguedadLicencias,
       fechaEstimadaJubilacionOrdinaria: agente.fechaEstimadaJubilacionOrdinaria,
     })
+    // Cargar el régimen actual del agente para la edición
+    setRegimenId('')
     setFormError(null)
     setFormSuccess(null)
+    if (agente.dni) {
+      getRegimenDeAgente(agente.dni).then((id) => setRegimenId(id))
+    }
     // Scroll al formulario
     setTimeout(() => formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
@@ -101,11 +126,13 @@ function GestionAgentes() {
     if (!form.dni) { setFormError('El DNI es obligatorio.'); return }
     if (!form.apellidoNombres) { setFormError('El Apellido y Nombres son obligatorios.'); return }
     if (!form.sexo) { setFormError('Debe seleccionar el Sexo.'); return }
+    if (!regimenId) { setFormError('Debe seleccionar el Régimen Jubilatorio.'); return }
+
+    const idRegimenNum = Number(regimenId)
 
     setSaving(true)
     try {
       if (isEditing && editingAgente) {
-        // Modo editar: extraer ID numérico del agente
         const rawId = editingAgente.id
         const numericId = editingAgente.agenteId ?? (rawId.startsWith('agente-')
           ? parseInt(rawId.replace('agente-', ''), 10)
@@ -132,7 +159,7 @@ function GestionAgentes() {
           antiguedadRecibo: form.antiguedadRecibo ?? '',
           antiguedadLicencias: form.antiguedadLicencias ?? '',
           fechaEstimadaJubilacionOrdinaria: form.fechaEstimadaJubilacionOrdinaria ?? '',
-        })
+        }, idRegimenNum)
 
         if (result.ok) {
           setFormSuccess(`Agente ${form.apellidoNombres} actualizado correctamente.`)
@@ -149,7 +176,7 @@ function GestionAgentes() {
         }
       } else {
         // Modo crear
-        const result = await createAgente(form)
+        const result = await createAgente(form, idRegimenNum)
         if (result.ok) {
           setFormSuccess('¡Agente registrado con éxito!')
           if (result.record) {
@@ -159,6 +186,7 @@ function GestionAgentes() {
           setForm(emptyForm())
           setEditingAgente(null)
           setSelectedGridId(null)
+          setRegimenId('')
         } else {
           setFormError(result.error ?? 'Error al guardar.')
         }
@@ -287,11 +315,24 @@ function GestionAgentes() {
           <SelectField
             label="Sexo"
             value={form.sexo ?? ''}
-            onChange={(v) => update('sexo', v)}
+            onChange={handleSexoChange}
             options={[
               { value: '', label: 'Seleccionar...' },
               { value: 'Masculino', label: 'Masculino' },
               { value: 'Femenino', label: 'Femenino' },
+            ]}
+          />
+          <SelectField
+            label="Régimen Jubilatorio"
+            value={regimenId}
+            onChange={setRegimenId}
+            disabled={!form.sexo}
+            options={[
+              { value: '', label: form.sexo ? 'Seleccionar...' : 'Primero seleccioná el Sexo' },
+              ...regimenesFiltrados.map((r) => ({
+                value: String(r.id),
+                label: `${r.nombre} · Edad ${r.edadRequerida} · ${r.aniosAportes} años de aportes${r.sexo ? ` (${r.sexo})` : ''}`,
+              })),
             ]}
           />
           <SelectField

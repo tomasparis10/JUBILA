@@ -585,6 +585,7 @@ export async function updateJubila(
  */
 export async function createAgente(
   data: Partial<JubilacionRecord>,
+  idRegimen?: number | null,
 ): Promise<{ ok: boolean; id?: string; error?: string; record?: JubilacionRecord }> {
   try {
     const { userId: usuarioId } = await requireAuthenticatedSession()
@@ -600,6 +601,19 @@ export async function createAgente(
     }
     if (sexo !== 'Masculino' && sexo !== 'Femenino') {
       return { ok: false, error: 'El Sexo debe ser Masculino o Femenino.' }
+    }
+
+    // Validar que el régimen corresponda al sexo del agente
+    if (idRegimen) {
+      const regimen = await prisma.rEGIMEN_JUBILATORIO.findUnique({
+        where: { ID_REGIMEN_JUBILATORIO: idRegimen },
+      })
+      if (!regimen) {
+        return { ok: false, error: 'El régimen seleccionado no existe.' }
+      }
+      if (regimen.SEXO && regimen.SEXO !== sexo) {
+        return { ok: false, error: `El régimen ${regimen.NOMBRE_REGIMEN} corresponde a sexo ${regimen.SEXO}, no a ${sexo}.` }
+      }
     }
 
     // Verificar si ya existe un agente con ese DNI
@@ -633,7 +647,7 @@ export async function createAgente(
         ANTIGUEDAD_RECIBO_CALC: data.antiguedadRecibo?.trim() || null,
         ANTIGUEDAD_LICENCIAS_CALC: data.antiguedadLicencias?.trim() || null,
         ESTADO_ACTIVO: data.estadoActivo ?? true,
-        ID_REGIMEN_JUBILATORIO: 1, // Régimen default
+        ID_REGIMEN_JUBILATORIO: idRegimen ?? null,
         FECHA_INICIO_CREACION_DATOS_PERSONALES: new Date(),
         USUARIO_CREACION: usuarioId,
         FECHA_ULTIMA_MODIFICACION: new Date(),
@@ -805,6 +819,9 @@ export interface AgenteProxJubilacion {
   cargo: string
   antiguedadRecibo: string
   antiguedadLicencias: string
+  regimen: string // NOMBRE_REGIMEN
+  aniosServicio: string // ANOS_APORTES_REQUERIDOS
+  edadRequerida: string // EDAD_REQUERIDA
 }
 
 /**
@@ -844,6 +861,7 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
         CARGO: true,
         ANTIGUEDAD_RECIBO_CALC: true,
         ANTIGUEDAD_LICENCIAS_CALC: true,
+        ID_REGIMEN_JUBILATORIO: true,
       },
       orderBy: {
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: 'asc',
@@ -851,18 +869,29 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
       take: 100,
     })
 
-    return agentes.map((agente) => ({
-      dni: agente.DNI_AGENTE ?? '',
-      apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
-      fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
-      cuil: agente.CUIL ?? '',
-      fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
-      secretaria: agente.SECRETARIA ?? '',
-      programa: agente.PROGRAMA ?? '',
-      cargo: agente.CARGO ?? '',
-      antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
-      antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
-    }))
+    const regimenes = await prisma.rEGIMEN_JUBILATORIO.findMany({
+      select: { ID_REGIMEN_JUBILATORIO: true, NOMBRE_REGIMEN: true, EDAD_REQUERIDA: true, ANOS_APORTES_REQUERIDOS: true },
+    })
+    const regimenPorId = new Map(regimenes.map((r) => [r.ID_REGIMEN_JUBILATORIO, r]))
+
+    return agentes.map((agente) => {
+      const regimen = agente.ID_REGIMEN_JUBILATORIO ? regimenPorId.get(agente.ID_REGIMEN_JUBILATORIO) : undefined
+      return {
+        dni: agente.DNI_AGENTE ?? '',
+        apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+        fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
+        cuil: agente.CUIL ?? '',
+        fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
+        secretaria: agente.SECRETARIA ?? '',
+        programa: agente.PROGRAMA ?? '',
+        cargo: agente.CARGO ?? '',
+        antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
+        antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
+        regimen: regimen?.NOMBRE_REGIMEN ?? '',
+        aniosServicio: regimen ? String(regimen.ANOS_APORTES_REQUERIDOS) : '',
+        edadRequerida: regimen ? String(regimen.EDAD_REQUERIDA) : '',
+      }
+    })
   } catch (error) {
     console.error('[getAgentesProxJubilacion] Error:', error)
     return []
@@ -894,24 +923,107 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
         CARGO: true,
         ANTIGUEDAD_RECIBO_CALC: true,
         ANTIGUEDAD_LICENCIAS_CALC: true,
+        ID_REGIMEN_JUBILATORIO: true,
       },
     })
 
-    return agentes.map((agente) => ({
-      dni: agente.DNI_AGENTE ?? '',
-      apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
-      fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
-      cuil: agente.CUIL ?? '',
-      fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
-      secretaria: agente.SECRETARIA ?? '',
-      programa: agente.PROGRAMA ?? '',
-      cargo: agente.CARGO ?? '',
-      antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
-      antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
-    }))
+    const regimenes = await prisma.rEGIMEN_JUBILATORIO.findMany({
+      select: { ID_REGIMEN_JUBILATORIO: true, NOMBRE_REGIMEN: true, EDAD_REQUERIDA: true, ANOS_APORTES_REQUERIDOS: true },
+    })
+    const regimenPorId = new Map(regimenes.map((r) => [r.ID_REGIMEN_JUBILATORIO, r]))
+
+    return agentes.map((agente) => {
+      const regimen = agente.ID_REGIMEN_JUBILATORIO ? regimenPorId.get(agente.ID_REGIMEN_JUBILATORIO) : undefined
+      return {
+        dni: agente.DNI_AGENTE ?? '',
+        apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+        fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
+        cuil: agente.CUIL ?? '',
+        fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
+        secretaria: agente.SECRETARIA ?? '',
+        programa: agente.PROGRAMA ?? '',
+        cargo: agente.CARGO ?? '',
+        antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
+        antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
+        regimen: regimen?.NOMBRE_REGIMEN ?? '',
+        aniosServicio: regimen ? String(regimen.ANOS_APORTES_REQUERIDOS) : '',
+        edadRequerida: regimen ? String(regimen.EDAD_REQUERIDA) : '',
+      }
+    })
   } catch (error) {
     console.error('[getAgentesData] Error:', error)
     return []
+  }
+}
+
+export interface RegimenOption {
+  id: number
+  nombre: string
+  sexo: string
+  edadRequerida: number
+  aniosAportes: number
+}
+
+export async function getRegimenes(): Promise<RegimenOption[]> {
+  try {
+    await requireAuthenticatedSession()
+    const regimenes = await prisma.rEGIMEN_JUBILATORIO.findMany({
+      orderBy: [{ NOMBRE_REGIMEN: 'asc' }, { SEXO: 'asc' }],
+    })
+    return regimenes.map((r) => ({
+      id: r.ID_REGIMEN_JUBILATORIO,
+      nombre: r.NOMBRE_REGIMEN,
+      sexo: r.SEXO ?? '',
+      edadRequerida: r.EDAD_REQUERIDA,
+      aniosAportes: r.ANOS_APORTES_REQUERIDOS,
+    }))
+  } catch (error) {
+    console.error('[getRegimenes] Error:', error)
+    return []
+  }
+}
+
+export async function getCantidadProxJubilar(): Promise<number> {
+  try {
+    await requireAuthenticatedSession()
+    const hoy = new Date()
+    const hace30Dias = new Date(hoy)
+    hace30Dias.setDate(hoy.getDate() - 30)
+    const en30Dias = new Date(hoy)
+    en30Dias.setDate(hoy.getDate() + 30)
+    hace30Dias.setUTCHours(0, 0, 0, 0)
+    en30Dias.setUTCHours(23, 59, 59, 999)
+
+    return await prisma.dATOS_PERSONALES_AGENTE_JUBILA.count({
+      where: {
+        ESTADO_ACTIVO: true,
+        FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: {
+          gte: hace30Dias,
+          lte: en30Dias,
+        },
+      },
+    })
+  } catch (error) {
+    console.error('[getCantidadProxJubilar] Error:', error)
+    return 0
+  }
+}
+
+/**
+ * Devuelve el ID_REGIMEN_JUBILATORIO (string) de un agente por DNI,
+ * o '' si no tiene régimen asignado o no existe.
+ */
+export async function getRegimenDeAgente(dni: string): Promise<string> {
+  try {
+    await requireAuthenticatedSession()
+    const agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
+      where: { DNI_AGENTE: dni },
+      select: { ID_REGIMEN_JUBILATORIO: true },
+    })
+    return agente?.ID_REGIMEN_JUBILATORIO ? String(agente.ID_REGIMEN_JUBILATORIO) : ''
+  } catch (error) {
+    console.error('[getRegimenDeAgente] Error:', error)
+    return ''
   }
 }
 
@@ -928,6 +1040,7 @@ export async function updateAgenteDatos(
     'cargo' | 'antiguedadRecibo' | 'antiguedadLicencias' |
     'fechaEstimadaJubilacionOrdinaria'
   >,
+  idRegimen?: number | null,
 ): Promise<{ ok: boolean; error?: string; record?: JubilacionRecord }> {
   try {
     const { userId: usuarioId } = await requireAuthenticatedSession()
@@ -935,6 +1048,18 @@ export async function updateAgenteDatos(
     if (!dni) return { ok: false, error: 'El DNI es obligatorio.' }
     if (data.sexo !== 'Masculino' && data.sexo !== 'Femenino') {
       return { ok: false, error: 'El Sexo debe ser Masculino o Femenino.' }
+    }
+
+    if (idRegimen) {
+      const regimen = await prisma.rEGIMEN_JUBILATORIO.findUnique({
+        where: { ID_REGIMEN_JUBILATORIO: idRegimen },
+      })
+      if (!regimen) {
+        return { ok: false, error: 'El régimen seleccionado no existe.' }
+      }
+      if (regimen.SEXO && regimen.SEXO !== data.sexo) {
+        return { ok: false, error: `El régimen ${regimen.NOMBRE_REGIMEN} corresponde a sexo ${regimen.SEXO}, no a ${data.sexo}.` }
+      }
     }
 
     const existente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findFirst({
@@ -967,6 +1092,7 @@ export async function updateAgenteDatos(
         ANTIGUEDAD_RECIBO_CALC: data.antiguedadRecibo?.trim() || null,
         ANTIGUEDAD_LICENCIAS_CALC: data.antiguedadLicencias?.trim() || null,
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: strToDate(data.fechaEstimadaJubilacionOrdinaria),
+        ID_REGIMEN_JUBILATORIO: idRegimen ?? null,
         FECHA_ULTIMA_MODIFICACION: new Date(),
         USUARIO_ULTIMA_MODIFICACION: usuarioId,
       },

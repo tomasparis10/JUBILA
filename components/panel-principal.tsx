@@ -17,7 +17,7 @@ import { FormField, SelectField, SectionCard } from '@/components/form-field'
 import { formatExpediente, formatDate, formatCuil, extractDniFromCuil, getDateValidationError } from '@/lib/format-utils'
 import { searchAgentes, updateJubila, createJubila, createAgente, getLastRecord } from '@/app/actions/agentes'
 import { GestorArchivos } from '@/components/gestor-archivos'
-import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud, PavPaseArchivo, PavDesistido, RenunciaRazonesParticulares, InvalidesProvisoria } from '@/components/pdf/PAVForms'
+import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud, PavPaseArchivo, PavDesistido, PaseReparticion, RenunciaRazonesParticulares, InvalidesProvisoria, RenunciaForm } from '@/components/pdf/PAVForms'
 
 // Normalize a string: lowercase + remove diacritics
 function normalize(str: string): string {
@@ -484,12 +484,29 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       .find((rv) => rv.fechaDesdeExp?.trim() || rv.fechaHastaExp?.trim() || rv.nroResRenov?.trim() || rv.nroExpMun?.trim() || rv.nroDcto?.trim())
 
     if (action === 'pase-reparticion') {
-      // Renuncia por Razones Particulares: datos personales + información laboral
+      // Pase Repartición (formulario nuevo): datos personales + información laboral
       if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
       if (!selected.cuil?.trim()) missing.push('• CUIL')
       if (!selected.cargo?.trim()) missing.push('• Cargo')
       if (!selected.programa?.trim()) missing.push('• Programa')
       if (!selected.nroExpMunRenuncia?.trim()) missing.push('• Nº Exp. Mun. Renuncia (Información Laboral)')
+      if (!selected.fBaja?.trim()) missing.push('• Fecha Baja (Información Laboral)')
+      if (!selected.nroResRenCaja?.trim()) missing.push('• Nº Res. Caja (Información Laboral)')
+      if (!selected.jNroExpCaja?.trim()) missing.push('• J. Nº Exp. Caja (Información Laboral)')
+    } else if (action === 'pase-reparticion-rrp') {
+      // Pase Repartición RRP (Renuncia por Razones Particulares): datos personales + información laboral
+      if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
+      if (!selected.cuil?.trim()) missing.push('• CUIL')
+      if (!selected.cargo?.trim()) missing.push('• Cargo')
+if (!selected.programa?.trim()) missing.push('• Programa')
+      if (!selected.nroExpMunRenuncia?.trim()) missing.push('• Nº Exp. Mun. Renuncia (Información Laboral)')
+      if (!selected.fBaja?.trim()) missing.push('• Fecha Baja (Información Laboral)')
+    } else if (action === 'renuncia') {
+      // Formulario Renuncia: datos personales + información laboral
+      if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
+      if (!selected.dni?.trim()) missing.push('• DNI')
+      if (!selected.cargo?.trim()) missing.push('• Cargo')
+      if (!selected.programa?.trim()) missing.push('• Programa')
       if (!selected.fBaja?.trim()) missing.push('• Fecha Baja (Información Laboral)')
     } else if (action === 'pase-interno') {
       // Invalidez Provisoria: datos personales + información laboral + renovaciones
@@ -565,8 +582,14 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
         doc = <PavDesistido data={pavData} />
         filename = `PAV_Desistido_${selected.dni}.pdf`
       } else if (action === 'pase-reparticion') {
-        doc = <RenunciaRazonesParticulares data={pavData} />
+        doc = <PaseReparticion data={pavData} />
         filename = `PaseReparticion_${selected.dni}.pdf`
+      } else if (action === 'pase-reparticion-rrp') {
+        doc = <RenunciaRazonesParticulares data={pavData} />
+        filename = `PaseReparticionRRP_${selected.dni}.pdf`
+      } else if (action === 'renuncia') {
+        doc = <RenunciaForm data={pavData} />
+        filename = `Renuncia_${selected.dni}.pdf`
       } else if (action === 'pase-interno') {
         doc = <InvalidesProvisoria data={pavData} />
         filename = `PaseInterno_${selected.dni}.pdf`

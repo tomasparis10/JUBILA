@@ -1,14 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Clock, AlertTriangle, Loader2, UserCircle, FileDown, CheckSquare } from 'lucide-react'
+import { AlertTriangle, Loader2, UserCircle, FileDown, CheckSquare, CalendarClock } from 'lucide-react'
 import { getAgentesProxJubilacion, getAgentesData, type AgenteProxJubilacion } from '@/app/actions/agentes'
 
-interface ProxJubilacionesWidgetProps {
+interface ProxJubilacionesPanelProps {
   onAgenteClick: (dni: string) => void
 }
 
-export default function ProxJubilacionesWidget({ onAgenteClick }: ProxJubilacionesWidgetProps) {
+export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacionesPanelProps) {
   const [agentes, setAgentes] = useState<AgenteProxJubilacion[]>([])
   const [loading, setLoading] = useState(true)
   const [checked, setChecked] = useState<Set<string>>(new Set())
@@ -69,6 +69,9 @@ export default function ProxJubilacionesWidget({ onAgenteClick }: ProxJubilacion
         'CUIL': ag.cuil,
         'Apellido y Nombres': ag.apellidoNombres,
         'Fecha de Nacimiento': ag.fechaNacimiento,
+        'Régimen': ag.regimen,
+        'Años de Servicio': ag.aniosServicio,
+        'Edad Requerida': ag.edadRequerida,
         'Fecha Est. Jubilación': ag.fechaEstimada,
         'Secretaría': ag.secretaria,
         'Programa': ag.programa,
@@ -92,7 +95,7 @@ export default function ProxJubilacionesWidget({ onAgenteClick }: ProxJubilacion
       const fecha = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}${now.getFullYear()}`
       XLSX.writeFile(wb, `proximas_jubilaciones_${fecha}.xlsx`)
     } catch (err) {
-      console.error('[ProxJubilacionesWidget] Error al exportar:', err)
+      console.error('[ProxJubilacionesPanel] Error al exportar:', err)
     } finally {
       setExporting(false)
     }
@@ -102,113 +105,143 @@ export default function ProxJubilacionesWidget({ onAgenteClick }: ProxJubilacion
   const someChecked = checked.size > 0 && checked.size < agentes.length
 
   return (
-    <div className="mx-3 mb-4 rounded-xl border border-[#1e3a8a]/60 bg-[#0f1f4a]/80 overflow-hidden shadow-lg">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#1e3a8a]/60 bg-[#172554]/90">
-        <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-amber-500/20 border border-amber-400/30 flex-shrink-0">
-          <Clock className="w-3 h-3 text-amber-400" />
+    <div className="flex flex-col gap-5">
+      {/* Header info */}
+      <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg">
+        <CalendarClock className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-amber-800">Próximos a Jubilar</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Agentes activos cuya fecha estimada de jubilación cae en el rango de ±30 días respecto de hoy.
+          </p>
         </div>
-        <span className="text-[10px] font-bold text-amber-300 uppercase tracking-widest leading-tight flex-1">
-          Próx. a Jubilar
-        </span>
-        {agentes.length > 0 && (
-          <>
-            {/* Checkbox seleccionar todos */}
-            <button
-              onClick={toggleAll}
-              title={allChecked ? 'Desmarcar todos' : 'Seleccionar todos'}
-              className="flex items-center justify-center w-5 h-5 rounded hover:bg-[#1e3a8a]/60 transition-colors flex-shrink-0"
-            >
-              <CheckSquare
-                className={`w-3 h-3 transition-colors ${
-                  allChecked
-                    ? 'text-amber-400'
-                    : someChecked
-                    ? 'text-amber-400/60'
-                    : 'text-slate-500'
-                }`}
-              />
-            </button>
-            <span className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-400 text-[9px] font-black text-[#172554] flex-shrink-0">
-              {agentes.length}
-            </span>
-          </>
-        )}
       </div>
 
-      {/* Body */}
-      <div className="max-h-64 overflow-y-auto">
+      {/* ── Lista / tabla ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+          <UserCircle className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-xs font-bold text-[#1e3a8a] uppercase tracking-widest flex-1">
+            {loading ? 'Cargando...' : `${agentes.length} agente${agentes.length !== 1 ? 's' : ''} en condición de jubilarse`}
+          </span>
+          {agentes.length > 0 && (
+            <>
+              <button
+                onClick={toggleAll}
+                title={allChecked ? 'Desmarcar todos' : 'Seleccionar todos'}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-blue-50 hover:border-blue-200 hover:text-[#1e3a8a] text-[10px] font-semibold transition flex-shrink-0"
+              >
+                <CheckSquare
+                  className={`w-3 h-3 transition-colors ${
+                    allChecked
+                      ? 'text-emerald-600'
+                      : someChecked
+                      ? 'text-emerald-500/70'
+                      : 'text-slate-400'
+                  }`}
+                />
+                {allChecked ? 'Desmarcar todos' : 'Seleccionar todos'}
+              </button>
+              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-400 text-[10px] font-black text-[#172554] flex-shrink-0">
+                {agentes.length}
+              </span>
+            </>
+          )}
+        </div>
+
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-5 px-3">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
-            <span className="text-[10px] text-blue-400">Cargando...</span>
+          <div className="flex items-center justify-center gap-2 py-16">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+            <span className="text-sm text-blue-400">Cargando agentes...</span>
           </div>
         ) : agentes.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-5 px-3">
-            <AlertTriangle className="w-5 h-5 text-slate-500" />
-            <p className="text-[9px] text-slate-500 text-center leading-relaxed">
-              Sin agentes en condiciones<br />de jubilarse este mes
-            </p>
+          <div className="flex flex-col items-center gap-2 py-16 text-slate-400">
+            <AlertTriangle className="w-8 h-8 opacity-30" />
+            <p className="text-sm">Sin agentes en condiciones de jubilarse en este rango de fechas.</p>
           </div>
         ) : (
-          <ul className="divide-y divide-[#1e3a8a]/30">
-            {agentes.map((ag) => (
-              <li key={ag.dni} className="flex items-start gap-1.5 px-2 py-2 hover:bg-[#1e3a8a]/40 transition-colors group">
-                {/* Checkbox */}
-                <label
-                  className="flex items-center justify-center w-5 h-5 flex-shrink-0 mt-0.5 cursor-pointer"
-                  title="Seleccionar para exportar"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked.has(ag.dni)}
-                    onChange={() => toggleCheck(ag.dni)}
-                    className="w-3 h-3 accent-amber-400 cursor-pointer rounded"
-                  />
-                </label>
-
-                {/* Info del agente — clic carga la ficha */}
-                <button
-                  onClick={() => onAgenteClick(ag.dni)}
-                  className="flex-1 text-left min-w-0"
-                >
-                  <div className="flex items-start gap-1.5">
-                    <UserCircle className="w-3.5 h-3.5 text-blue-400/60 flex-shrink-0 mt-0.5 group-hover:text-blue-300 transition-colors" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-semibold text-slate-200 truncate group-hover:text-white transition-colors leading-tight">
-                        {ag.apellidoNombres}
-                      </p>
-                      <p className="text-[9px] text-blue-400/80 font-mono mt-0.5">
-                        DNI {ag.dni}
-                      </p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <Clock className="w-2.5 h-2.5 text-amber-400/70" />
-                        <p className="text-[9px] text-amber-300/90 font-semibold">
-                          {ag.fechaEstimada}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-slate-100 z-10">
+                <tr>
+                  <th className="px-3 py-2.5 text-center font-bold text-slate-600 uppercase tracking-wider w-10">
+                    <input
+                      type="checkbox"
+                      checked={allChecked}
+                      onChange={toggleAll}
+                      className="w-3.5 h-3.5 accent-amber-400 cursor-pointer rounded"
+                    />
+                  </th>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider w-24">DNI</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider">Apellido y Nombres</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider">Régimen</th>
+                  <th className="px-3 py-2.5 text-center font-bold text-slate-600 uppercase tracking-wider w-20">Años de Servicio</th>
+                  <th className="px-3 py-2.5 text-center font-bold text-slate-600 uppercase tracking-wider w-20">Edad Requerida</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider w-28">Fecha Est. Jubil.</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider hidden md:table-cell">Programa</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider hidden lg:table-cell">Cargo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {agentes.map((ag) => {
+                  const isChecked = checked.has(ag.dni)
+                  return (
+                    <tr
+                      key={ag.dni}
+                      onClick={() => toggleCheck(ag.dni)}
+                      className={`cursor-pointer transition ${
+                        isChecked ? 'bg-amber-50/70' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <td className="px-3 py-2.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleCheck(ag.dni)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-3.5 h-3.5 accent-amber-400 cursor-pointer rounded"
+                        />
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-slate-600">{ag.dni || '—'}</td>
+                      <td className="px-3 py-2.5">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onAgenteClick(ag.dni) }}
+                          className="font-semibold text-slate-800 hover:text-[#1e3a8a] hover:underline text-left"
+                        >
+                          {ag.apellidoNombres || '—'}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-600">{ag.regimen || '—'}</td>
+                      <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{ag.aniosServicio || '—'}</td>
+                      <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{ag.edadRequerida || '—'}</td>
+                      <td className="px-3 py-2.5">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-semibold">
+                          {ag.fechaEstimada || '—'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-500 hidden md:table-cell truncate max-w-[160px]">{ag.programa || '—'}</td>
+                      <td className="px-3 py-2.5 text-slate-500 hidden lg:table-cell truncate max-w-[160px]">{ag.cargo || '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {/* Footer: botón exportar (solo si hay agentes seleccionados) */}
+      {/* ── Botón exportar ── */}
       {checked.size > 0 && (
-        <div className="px-3 py-2 border-t border-[#1e3a8a]/60 bg-[#172554]/80">
+        <div className="flex items-center justify-end">
           <button
             onClick={handleExport}
             disabled={exporting}
-            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[10px] font-bold uppercase tracking-wider transition-colors shadow-sm"
+            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-bold uppercase tracking-wider transition shadow-sm"
           >
             {exporting ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <FileDown className="w-3 h-3" />
+              <FileDown className="w-4 h-4" />
             )}
             {exporting
               ? 'Exportando...'
