@@ -175,12 +175,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
         // tipos de SQL Server sobre VALUES, que con NULLs asumía `int` → P2010
         // code 245). Una sentencia por lote; todas dentro de la $transaction
         // arreglo → rollback íntegro ante cualquier fallo.
+        // FECHAS: se pasan como texto plano 'yyyy-mm-dd' (partes UTC), sin objeto
+        // Date ni instante → SQL Server guarda literalmente la fecha del Excel,
+        // sin conversión por zona horaria.
         // ────────────────────────────────────────────────────────────────────
         const filasDp = dp.actualizadas.map((row) => ({
           dni: row.dni,
           nombre: row.payload.NOMBRE_AGENTE,
           apellido: row.payload.APELLIDO_AGENTE,
-          fechaNac: new Date(row.payload.FECHA_NACIMIENTO),
+          // Fecha con formato plano 'yyyy-mm-dd' (partes UTC): nunca se convierte
+          // por zona horaria ni depende de cómo SQL Server enlaza un Date.
+          fechaNac: row.payload.FECHA_NACIMIENTO.slice(0, 10),
           secretaria: row.payload.SECRETARIA ?? null,
           programa: row.payload.PROGRAMA ?? null,
           cargo: row.payload.CARGO ?? null,
@@ -268,7 +273,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
         // ────────────────────────────────────────────────────────────────────
         const filasCa = ca.actualizadas.map((row) => ({
           id: row.idCarrera,
-          fechaBaja: row.payload.FECHA_BAJA ? new Date(row.payload.FECHA_BAJA) : null,
+          // Igual tratamiento que FECHA_NACIMIENTO: string plano 'yyyy-mm-dd'.
+          fechaBaja: row.payload.FECHA_BAJA ? row.payload.FECHA_BAJA.slice(0, 10) : null,
           causaBaja: row.payload.CAUSA_BAJA ?? null,
         }))
 

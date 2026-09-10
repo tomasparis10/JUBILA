@@ -87,10 +87,17 @@ export function validateFileMetadata(
 /**
  * Lee un Buffer de Excel y devuelve headers + filas.
  *
- * Comportamiento:
- * - La primera fila (índice 0) se usa como headers
- * - Las filas completamente vacías al final se ignoran
- * - cellDates: false → recibimos números seriales, los parseamos con UTC en normalizers
+ * ESTRATEGIA DE FECHAS (decisión del usuario — dd/mm/aaaa):
+ * - Leemos el TEXTO MOSTRADO de cada celda (raw: false). Si la celda muestra
+ *   "10/4/69", la fecha que se carga es 10/04/1969; si muestra "15/02/1954",
+ *   se carga 15/02/1954. Siempre interpretación DD/MM/AAAA (día/mes), idéntica
+ *   a lo que un usuario argentino ve en el Excel.
+ * - NO usamos el serial de la celda como fuente (aunque queda como respaldo en
+ *   normalizeDate): el archivo real fue escrito con formato americano "m/d/yy"
+ *   y su valor físico (ej. 03/10/1969) no coincide con lo que muestra la celda
+ *   ni con la fecha que hay que cargar (10/04/1969).
+ * - Resultado: la fecha guardada es EXACTAMENTE la que se ve en la celda,
+ *   expresada en dd/mm/aaaa, sin desplazamientos de zona horaria (Date.UTC).
  *
  * NOTA sobre DatosPersonales.xlsx:
  * El archivo real tiene headers en fila 2 (índice 1, base 0), con fila 0 como título.
@@ -110,7 +117,12 @@ export function readExcelBuffer(buffer: Buffer): ExcelParseResult {
   }
 
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { defval: '', header: 1 }) as unknown[][]
+  // raw: false → las celdas de fecha vienen como su TEXTO MOSTRADO (ej. "10/4/69"),
+  // y normalizeDate lo interpreta DD/MM/AAAA. Así la fecha guardada = la que el
+  // usuario VEE en la celda (decisión explícita: el archivo fue escrito con formato
+  // americano m/d/yy y su valor físico NO coincide con la fecha que muestra ni con
+  // la que hay que cargar). El serial solo se usa como respaldo en normalizeDate.
+  const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { defval: '', header: 1, raw: false }) as unknown[][]
 
   if (!raw || raw.length === 0) {
     return { ok: false, headers: [], rows: [], error: 'La hoja de cálculo está vacía.' }

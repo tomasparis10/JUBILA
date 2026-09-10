@@ -709,11 +709,17 @@ function DiffListDP({ items }: { items: AnalysisResult['datosPersonales']['actua
               <span className="text-xs font-semibold text-slate-700">{a.nombre}</span>
             </div>
             {a.diffs.map((d) => (
-              <div key={d.campo} className="flex items-center gap-1.5 pl-4 mt-0.5">
+              <div key={d.campo} className="flex items-start gap-1.5 pl-4 mt-0.5">
                 <span className="text-[10px] font-mono text-slate-400 w-36 shrink-0">{d.campo}</span>
-                <span className="text-[10px] text-red-500 line-through max-w-[80px] truncate">{d.anterior || '—'}</span>
-                <ArrowRight className="w-3 h-3 text-slate-300 shrink-0" />
-                <span className="text-[10px] text-emerald-600 font-semibold max-w-[80px] truncate">{d.nuevo || '—'}</span>
+                <span
+                  className="text-[10px] text-red-500 line-through max-w-[150px] truncate"
+                  title={d.anterior || '—'}
+                >{d.anterior || '—'}</span>
+                <ArrowRight className="w-3 h-3 text-slate-300 shrink-0 mt-0.5" />
+                <span
+                  className="text-[10px] text-emerald-600 font-semibold max-w-[150px] truncate"
+                  title={d.nuevo || '—'}
+                >{d.nuevo || '—'}</span>
               </div>
             ))}
           </div>
@@ -745,11 +751,17 @@ function DiffListCA({ items }: { items: AnalysisResult['carreraAdministrativa'][
               <span className="text-slate-400">alta: {c.fechaAltaStr}</span>
             </div>
             {c.diffs.map((d) => (
-              <div key={d.campo} className="flex items-center gap-1.5 pl-4 mt-0.5">
+              <div key={d.campo} className="flex items-start gap-1.5 pl-4 mt-0.5">
                 <span className="text-[10px] font-mono text-slate-400 w-24 shrink-0">{d.campo}</span>
-                <span className="text-[10px] text-red-500 line-through">{d.anterior || '—'}</span>
-                <ArrowRight className="w-3 h-3 text-slate-300 shrink-0" />
-                <span className="text-[10px] text-emerald-600 font-semibold">{d.nuevo || '—'}</span>
+                <span
+                  className="text-[10px] text-red-500 line-through max-w-[150px] truncate"
+                  title={d.anterior || '—'}
+                >{d.anterior || '—'}</span>
+                <ArrowRight className="w-3 h-3 text-slate-300 shrink-0 mt-0.5" />
+                <span
+                  className="text-[10px] text-emerald-600 font-semibold max-w-[150px] truncate"
+                  title={d.nuevo || '—'}
+                >{d.nuevo || '—'}</span>
               </div>
             ))}
           </div>

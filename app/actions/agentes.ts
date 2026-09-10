@@ -48,9 +48,10 @@ function strToDate(str: string | null | undefined): Date | null {
       dStr = yStr
       yStr = temp
     }
-    // Si el año es de 2 dígitos (ej. '26' -> 2026)
+    // Si el año es de 2 dígitos (ej. '26' -> 2026, '69' -> 1969)
     if (yStr.length === 2) {
-      yStr = '20' + yStr
+      const yy = parseInt(yStr, 10)
+      yStr = String(yy >= 30 ? 1900 + yy : 2000 + yy)
     }
     let day = parseInt(dStr, 10)
     let month = parseInt(mStr, 10)

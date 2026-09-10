@@ -167,52 +167,98 @@ export function normalizeRegimen(value: unknown): string | null {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Convierte cualquier representación de fecha de Excel a Date UTC o null.
+ * Convierte cualquier representación de fecha a Date UTC o null.
  *
- * Soporta:
- *   - Número serial de Excel (días desde 30/12/1899)
- *   - String 'dd/mm/yyyy'
- *   - String 'yyyy-mm-dd'
- *   - Objeto Date nativo
+ * ESTRATEGIA (decisión del usuario — dd/mm/aaaa):
  *
- * SIEMPRE construye con Date.UTC() para evitar desplazamiento de zona horaria.
- * Las fechas son administrativas: 01/08/2026 debe permanecer 01/08/2026.
+ * readExcelBuffer lee las celdas como su TEXTO MOSTRADO (raw:false). Esta
+ * función lo interpreta SIEMPRE como DD/MM/AAAA (día/mes, convención argentina):
+ * "10/4/69" → 10/04/1969, "15/02/1954" → 15/02/1954. Así la fecha guardada es
+ * EXACTAMENTE la que el usuario ve en la celda del Excel.
+ *
+ * El serial numérico solo se usa como RESPALDO (celdas de fecha cuyo texto no
+ * resultó legible o números puros), convertido sin zona horaria.
+ *
+ * SIEMPRE se construye con Date.UTC() → la DB guarda yyyy-mm-dd (medianoche
+ * UTC) y, al leer con getUTC*, el día NO se desplaza por zona horaria.
  */
 export function normalizeDate(value: unknown): Date | null {
   if (value === null || value === undefined || value === '') return null
 
-  // Número serial de Excel
-  if (typeof value === 'number') {
-    if (value <= 0) return null
-    return excelSerialToUTC(value)
-  }
-
-  // Objeto Date (cuando cellDates: true)
+  // ── Caso 1: Objeto Date (rutas que usen cellDates:true) ──────────────────
   if (value instanceof Date) {
     if (isNaN(value.getTime())) return null
-    // Reconstruir en UTC usando partes UTC del Date que devolvió XLSX
-    return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()))
+    const y = value.getUTCFullYear()
+    const m = value.getUTCMonth()
+    const d = value.getUTCDate()
+    if (y < 1900 || y > 2100) return null
+    return new Date(Date.UTC(y, m, d))
   }
 
+  // ── Caso 2: Número serial de Excel (respaldo) ─────────────────────────────
+  if (typeof value === 'number') {
+    if (value <= 0) return null
+    const d = excelSerialToUTC(value)
+    const y = d.getUTCFullYear()
+    if (y < 1900 || y > 2100) return null
+    return new Date(Date.UTC(y, d.getUTCMonth(), d.getUTCDate()))
+  }
+
+  // ── Caso 3: String (celdas escritas a mano o serial en texto) ─────────────
   if (typeof value === 'string') {
     const s = value.trim()
     if (!s) return null
 
-    // dd/mm/yyyy o d/m/yyyy
-    const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-    if (dmy) {
-      return buildStrictUTCDate(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]))
+    // Serial que llegó como string (respaldo)
+    if (/^\d{4,5}$/.test(s)) {
+      const num = Number(s)
+      if (num > 0) {
+        const d = excelSerialToUTC(num)
+        const y = d.getUTCFullYear()
+        if (y >= 1900 && y <= 2100) return new Date(Date.UTC(y, d.getUTCMonth(), d.getUTCDate()))
+      }
     }
 
-    // yyyy-mm-dd
-    const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+    // yyyy-mm-dd o yyyy/mm/dd (formato ISO)
+    const ymd = s.match(/^(\d{4})[-\/\.](\d{1,2})[-\/\.](\d{1,2})/)
     if (ymd) {
       return buildStrictUTCDate(Number(ymd[1]), Number(ymd[2]), Number(ymd[3]))
+    }
+
+    // dd/mm/yyyy o d/m/yyyy (año 4 dígitos — priorytario DD/MM/AAAA argentino)
+    const dmy4 = s.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})$/)
+    if (dmy4) {
+      let d = Number(dmy4[1])
+      let m = Number(dmy4[2])
+      const y = Number(dmy4[3])
+      // Fallback si m > 12 pero d <= 12 (texto accidental tipo m/d/yyyy)
+      if (m > 12 && d <= 12) {
+        const temp = d
+        d = m
+        m = temp
+      }
+      return buildStrictUTCDate(y, m, d)
+    }
+
+    // dd/mm/yy o d/m/yy (año 2 dígitos, pivote 30: 30-99 → 1930-1999 | 00-29 → 2000-2029)
+    const dmy2 = s.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{2})$/)
+    if (dmy2) {
+      let d = Number(dmy2[1])
+      let m = Number(dmy2[2])
+      const yy = Number(dmy2[3])
+      const year = yy >= 30 ? 1900 + yy : 2000 + yy
+      if (m > 12 && d <= 12) {
+        const temp = d
+        d = m
+        m = temp
+      }
+      return buildStrictUTCDate(year, m, d)
     }
   }
 
   return null
 }
+
 
 function buildStrictUTCDate(year: number, month: number, day: number): Date | null {
   const d = new Date(Date.UTC(year, month - 1, day))
@@ -232,12 +278,15 @@ export function isIrrationalAltaDate(date: Date): boolean {
  * Excel tiene un bug heredado de Lotus 1-2-3: considera que 1900 fue bisiesto.
  * El serial 60 representa el inexistente 29/02/1900; lo llevamos al 28/02/1900
  * y corregimos los seriales posteriores sin tocar fechas modernas.
+ *
+ * Se usa floor (no round) para que un resto horario dentro de la celda (ej.
+ * serial ...999 = 23:59:59) no infle la fecha al día siguiente.
  */
 function excelSerialToUTC(serial: number): Date {
   const MS_POR_DIA = 86_400_000
   const epoch = Date.UTC(1899, 11, 31)
   const correctedSerial = serial > 59 ? serial - 1 : serial
-  return new Date(epoch + Math.round(correctedSerial * MS_POR_DIA))
+  return new Date(epoch + Math.floor(correctedSerial * MS_POR_DIA))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
