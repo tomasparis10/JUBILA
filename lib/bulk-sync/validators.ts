@@ -48,6 +48,52 @@ export interface ColumnValidation {
   missing: string[]
 }
 
+const DATE_COLUMNS = new Set([
+  'FECHA_NACIMIENTO',
+  'FECHA ALTA',
+  'FECHA BAJA',
+])
+
+type ExcelDateCode = { y: number; m: number; d: number }
+type ExcelCell = { v?: unknown; t?: string; z?: string }
+
+/**
+ * Obtiene la fecha de una celda serializada sin crear un Date de JavaScript.
+ * Excel puede guardar la hora como 23:59:xx; convertir ese valor a Date en un
+ * servidor UTC-3 lo lleva al día anterior. parse_date_code trabaja solo con
+ * las partes del calendario y evita ese desplazamiento.
+ */
+function excelSerialToDisplayedDate(value: number, format: string | undefined, date1904: boolean): string | null {
+  if (!Number.isFinite(value) || value <= 0) return null
+
+  const code = (XLSX.SSF as unknown as {
+    parse_date_code: (serial: number, options?: { date1904?: boolean }) => ExcelDateCode | null
+  }).parse_date_code(Math.round(value), { date1904 })
+  if (!code || code.y < 1900 || code.y > 2100) return null
+
+  // Conserva el orden de la máscara del Excel. Para el archivo actual m/d/yy
+  // produce 10/4/69 y 5/11/81, que luego normalizeDate interpreta como DD/MM.
+  const tokens = (format ?? '').match(/d{1,4}|m{1,4}|y{2,4}/gi) ?? []
+  const values: Record<string, string> = {
+    d: String(code.d),
+    dd: String(code.d).padStart(2, '0'),
+    m: String(code.m),
+    mm: String(code.m).padStart(2, '0'),
+    yy: String(code.y).slice(-2),
+    yyyy: String(code.y),
+  }
+  const dateTokens = tokens.filter((token) => /^[dmy]+$/i.test(token.toLowerCase()))
+  if (dateTokens.length >= 3) {
+    return dateTokens.slice(0, 3).map((token) => values[token.toLowerCase()] ?? '').join('/')
+  }
+
+  return `${String(code.m).padStart(2, '0')}/${String(code.d).padStart(2, '0')}/${code.y}`
+}
+
+function normalizeHeader(value: unknown): string {
+  return String(value ?? '').trim().toUpperCase()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Validación de tipo de archivo
 // ─────────────────────────────────────────────────────────────────────────────
@@ -88,14 +134,11 @@ export function validateFileMetadata(
  * Lee un Buffer de Excel y devuelve headers + filas.
  *
  * ESTRATEGIA DE FECHAS (decisión del usuario — dd/mm/aaaa):
- * - Leemos el TEXTO MOSTRADO de cada celda (raw: false). Si la celda muestra
- *   "10/4/69", la fecha que se carga es 10/04/1969; si muestra "15/02/1954",
- *   se carga 15/02/1954. Siempre interpretación DD/MM/AAAA (día/mes), idéntica
- *   a lo que un usuario argentino ve en el Excel.
- * - NO usamos el serial de la celda como fuente (aunque queda como respaldo en
- *   normalizeDate): el archivo real fue escrito con formato americano "m/d/yy"
- *   y su valor físico (ej. 03/10/1969) no coincide con lo que muestra la celda
- *   ni con la fecha que hay que cargar (10/04/1969).
+ * - Las celdas numéricas de fecha se convierten desde el serial Excel usando
+ *   parse_date_code, sin pasar por Date ni por zona horaria. Esto conserva el
+ *   día que muestra Excel aunque la celda tenga una hora interna 23:59:xx.
+ * - Las fechas textuales se conservan como texto y normalizeDate las interpreta
+ *   como DD/MM/AAAA.
  * - Resultado: la fecha guardada es EXACTAMENTE la que se ve en la celda,
  *   expresada en dd/mm/aaaa, sin desplazamientos de zona horaria (Date.UTC).
  *
@@ -107,7 +150,7 @@ export function validateFileMetadata(
 export function readExcelBuffer(buffer: Buffer): ExcelParseResult {
   let workbook: XLSX.WorkBook
   try {
-    workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false })
+    workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false, cellNF: true })
   } catch {
     return { ok: false, headers: [], rows: [], error: 'El archivo Excel está corrupto o tiene un formato no compatible.' }
   }
@@ -117,12 +160,7 @@ export function readExcelBuffer(buffer: Buffer): ExcelParseResult {
   }
 
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  // raw: false → las celdas de fecha vienen como su TEXTO MOSTRADO (ej. "10/4/69"),
-  // y normalizeDate lo interpreta DD/MM/AAAA. Así la fecha guardada = la que el
-  // usuario VEE en la celda (decisión explícita: el archivo fue escrito con formato
-  // americano m/d/yy y su valor físico NO coincide con la fecha que muestra ni con
-  // la que hay que cargar). El serial solo se usa como respaldo en normalizeDate.
-  const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { defval: '', header: 1, raw: false }) as unknown[][]
+  const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { defval: '', header: 1, raw: true }) as unknown[][]
 
   if (!raw || raw.length === 0) {
     return { ok: false, headers: [], rows: [], error: 'La hoja de cálculo está vacía.' }
@@ -143,6 +181,8 @@ export function readExcelBuffer(buffer: Buffer): ExcelParseResult {
     String(h ?? '').trim(),
   )
 
+  const date1904 = Boolean(workbook.Workbook?.WBProps?.date1904)
+
   const dataRows: Record<string, unknown>[] = []
   for (let i = headerRowIndex + 1; i < raw.length; i++) {
     const row = raw[i] as unknown[]
@@ -155,7 +195,13 @@ export function readExcelBuffer(buffer: Buffer): ExcelParseResult {
 
     const obj: Record<string, unknown> = {}
     headerRow.forEach((h, idx) => {
-      obj[h] = row[idx] ?? ''
+      const cell = row[idx] as ExcelCell | unknown
+      const header = normalizeHeader(h)
+      if (DATE_COLUMNS.has(header) && typeof cell === 'number') {
+        obj[h] = excelSerialToDisplayedDate(cell, undefined, date1904) ?? ''
+      } else {
+        obj[h] = cell ?? ''
+      }
     })
     dataRows.push(obj)
   }

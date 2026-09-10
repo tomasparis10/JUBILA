@@ -18,6 +18,7 @@ import {
   normalizeSexo,
   normalizeDate,
   normalizeEstadoActivo,
+  cleanImportedText,
   dateToStr,
   normStr,
   isIrrationalAltaDate,
@@ -180,7 +181,7 @@ export function analyzeDatosPersonales(
 
     // ── Otros campos ────────────────────────────────────────────────────────
     const preserveText = (raw: unknown, actual: string | null | undefined) =>
-      String(raw ?? '').trim() || actual || ''
+      cleanImportedText(raw) || actual || ''
     const nombre = preserveText(getCol(row, 'NOMBRE_AGENTE'), existente?.NOMBRE_AGENTE)
     const apellido = preserveText(getCol(row, 'APELLIDO_AGENTE'), existente?.APELLIDO_AGENTE)
     const secretaria = preserveText(getCol(row, 'SECRETARIA'), existente?.SECRETARIA) || null
@@ -325,6 +326,7 @@ export function analyzeCarreraAdministrativa(
   const errores: CaRowError[] = []
   let ignoradas = 0
   const noEncontradas: CaRowError[] = []
+  const clavesEnExcel = new Set<string>()
 
   rows.forEach((row, idx) => {
     const rowIndex = idx + 2
@@ -388,16 +390,24 @@ export function analyzeCarreraAdministrativa(
     // ── CAUSA BAJA ──────────────────────────────────────────────────────────
     const causaBajaRaw = getCol(row, 'CAUSA BAJA')
     const causaBajaVacia = !String(causaBajaRaw ?? '').trim()
-    const causaBaja = String(causaBajaRaw ?? '').trim() || null
+    const causaBaja = cleanImportedText(causaBajaRaw) || null
 
     // ── Clave funcional de la fase ──────────────────────────────────────────
     const claveAlta = dateToStr(fechaAlta)
     const faseClave = `${dni}|${claveAlta}`
 
+    // Una persona no puede tener dos cargas de la misma fecha de alta. Esto
+    // evita que dos filas repetidas del mismo Excel terminen como dos INSERT.
+    if (clavesEnExcel.has(faseClave)) {
+      ignoradas++
+      return
+    }
+    clavesEnExcel.add(faseClave)
+
     const candidatas = fases.get(faseClave) ?? []
     const existenteExacta = candidatas.find((fase) =>
       (fechaBajaVacia || dateToStr(fase.FECHA_BAJA) === dateToStr(fechaBaja)) &&
-      (causaBajaVacia || (fase.CAUSA_BAJA ?? '').trim() === (causaBaja ?? '').trim()),
+      (causaBajaVacia || normStr(fase.CAUSA_BAJA) === normStr(causaBaja)),
     )
 
     // Si la misma fase aparece repetida y una de las filas ya coincide,
@@ -435,7 +445,7 @@ export function analyzeCarreraAdministrativa(
 
     const causaAnt = (existente.CAUSA_BAJA ?? '').trim()
     const causaNvo = (causaBajaEfectiva ?? '').trim()
-    if (causaAnt !== causaNvo) {
+    if (normStr(causaAnt) !== normStr(causaNvo)) {
       diffs.push({ campo: 'CAUSA_BAJA', anterior: causaAnt || '—', nuevo: causaNvo || '—' })
     }
 

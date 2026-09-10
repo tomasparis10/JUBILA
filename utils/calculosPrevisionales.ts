@@ -47,6 +47,45 @@ function difEnDias(inicio: Date, fin: Date): number {
   return Math.max(0, Math.floor((finMs - iniMs) / MS_POR_DIA))
 }
 
+type IntervaloDias = { inicio: number; fin: number }
+
+/** Une períodos iguales o superpuestos para no contar antigüedad dos veces. */
+function unirIntervalos(intervalos: IntervaloDias[]): IntervaloDias[] {
+  const ordenados = intervalos
+    .filter(({ inicio, fin }) => inicio < fin)
+    .sort((a, b) => a.inicio - b.inicio || a.fin - b.fin)
+  const unidos: IntervaloDias[] = []
+
+  for (const intervalo of ordenados) {
+    const ultimo = unidos[unidos.length - 1]
+    if (!ultimo || intervalo.inicio > ultimo.fin) {
+      unidos.push({ ...intervalo })
+    } else {
+      ultimo.fin = Math.max(ultimo.fin, intervalo.fin)
+    }
+  }
+
+  return unidos
+}
+
+function intervalosDeFases(fases: FaseCarrera[], limite: Date): IntervaloDias[] {
+  const limiteMs = Date.UTC(limite.getUTCFullYear(), limite.getUTCMonth(), limite.getUTCDate())
+  return unirIntervalos(
+    fases
+      .filter((fase): fase is FaseCarrera & { FECHA_ALTA: Date } => Boolean(fase.FECHA_ALTA))
+      .map((fase) => {
+        const alta = new Date(fase.FECHA_ALTA)
+        const baja = fase.FECHA_BAJA ? new Date(fase.FECHA_BAJA) : limite
+        const inicio = Date.UTC(alta.getUTCFullYear(), alta.getUTCMonth(), alta.getUTCDate())
+        const fin = Math.min(
+          Date.UTC(baja.getUTCFullYear(), baja.getUTCMonth(), baja.getUTCDate()),
+          limiteMs,
+        )
+        return { inicio, fin }
+      }),
+  )
+}
+
 // ---------------------------------------------------------------------------
 // A. Antiguedad Recibo
 // ---------------------------------------------------------------------------
@@ -64,19 +103,7 @@ export function calcAntiguedadRecibo(
 ): string {
   if (!fases || fases.length === 0) return '0 Años, 0 Meses, 0 Días'
 
-  const hoy = new Date()
-  let totalDias = 0
-
-  for (const fase of fases) {
-    if (!fase.FECHA_ALTA) continue
-
-    const inicio = new Date(fase.FECHA_ALTA)
-    const fin    = fase.FECHA_BAJA ? new Date(fase.FECHA_BAJA) : hoy
-
-    totalDias += difEnDias(inicio, fin)
-  }
-
-  return formatDias(totalDias)
+  return formatDias(calcDiasAportes(fases, new Date()))
 }
 
 // ---------------------------------------------------------------------------
@@ -105,33 +132,29 @@ export function calcAntiguedadLicencias(
   if (!fases || fases.length === 0) return '0 Años, 0 Meses, 0 Días'
 
   const inicioAnio2026 = new Date(Date.UTC(2026, 0, 1)) // 01/01/2026 UTC
+  const intervalos = intervalosDeFases(
+    fases.filter((fase) => fase.FECHA_ALTA && new Date(fase.FECHA_ALTA) < inicioAnio2026),
+    CORTE_LICENCIAS,
+  )
   let totalDias = 0
+  const fechaJubilacionMs = fechaJubilacion && fechaJubilacion < CORTE_LICENCIAS
+    ? Date.UTC(fechaJubilacion.getUTCFullYear(), fechaJubilacion.getUTCMonth(), fechaJubilacion.getUTCDate())
+    : null
 
-  for (const fase of fases) {
-    if (!fase.FECHA_ALTA) continue
+  for (const intervalo of intervalos) {
+    if (fechaJubilacionMs == null) {
+      totalDias += Math.floor((intervalo.fin - intervalo.inicio) / (1000 * 60 * 60 * 24))
+      continue
+    }
 
-    const inicio = new Date(fase.FECHA_ALTA)
-    if (inicio >= inicioAnio2026) continue // Fase iniciada en 2026 o después → ignorar
-
-    // El fin de la fase nunca supera el corte de licencias
-    const finRaw = fase.FECHA_BAJA ? new Date(fase.FECHA_BAJA) : CORTE_LICENCIAS
-    const fin    = finRaw > CORTE_LICENCIAS ? CORTE_LICENCIAS : finRaw
-
-    if (fechaJubilacion && fechaJubilacion < CORTE_LICENCIAS) {
-      // ── Parte regular: inicio → min(fin, fechaJubilacion) ──────────────────
-      const corte = new Date(Math.min(fin.getTime(), fechaJubilacion.getTime()))
-      if (inicio < corte) {
-        totalDias += difEnDias(inicio, corte)
-      }
-      // ── Parte excedente: fechaJubilacion → fin (dentro del corte) ──────────
-      if (fin > fechaJubilacion) {
-        const inicioExcedente = inicio > fechaJubilacion ? inicio : fechaJubilacion
-        const diasExcedente = difEnDias(inicioExcedente, fin)
-        totalDias += Math.floor(diasExcedente / 2)
-      }
-    } else {
-      // Sin fecha de jubilación (o ya posterior al corte): contar todo completo
-      totalDias += difEnDias(inicio, fin)
+    const finRegular = Math.min(intervalo.fin, fechaJubilacionMs)
+    if (intervalo.inicio < finRegular) {
+      totalDias += Math.floor((finRegular - intervalo.inicio) / (1000 * 60 * 60 * 24))
+    }
+    if (intervalo.fin > fechaJubilacionMs) {
+      const inicioExcedente = Math.max(intervalo.inicio, fechaJubilacionMs)
+      const diasExcedente = Math.floor((intervalo.fin - inicioExcedente) / (1000 * 60 * 60 * 24))
+      totalDias += Math.floor(diasExcedente / 2)
     }
   }
 

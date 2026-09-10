@@ -24,6 +24,23 @@ function removeAccents(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
 
+/**
+ * Repara los caracteres que aparecen en los XLS antiguos exportados con una
+ * tabla de caracteres incorrecta. Los valores no recuperables (U+FFFD) se
+ * eliminan para que nunca vuelvan a guardarse como rombos en la DB.
+ */
+export function cleanImportedText(value: unknown): string {
+  return toStr(value)
+    .replace(/х/g, 'ÑE')
+    .replace(/я/g, 'ÑO')
+    .replace(/с/g, 'ÑA')
+    .replace(/ӎ/g, 'ÓN')
+    .replace(/б/g, '°')
+    .replace(/�/g, '')
+    .replace(/д/g, '°')
+    .replace(/[^\x00-\x7FÁÉÍÓÚÜÑáéíóúüñ]/g, '')
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // normalizeDni
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,7 +90,7 @@ export function normalizeDni(value: unknown): string | null {
 export function normalizeSexo(value: unknown): 'Masculino' | 'Femenino' | null {
   if (value === null || value === undefined || value === '') return null
 
-  const s = removeAccents(toStr(value)).toUpperCase()
+  const s = removeAccents(cleanImportedText(value)).toUpperCase()
 
   if (s === 'M' || s === 'MASCULINO' || s === 'HOMBRE' || s === 'MASC') {
     return 'Masculino'
@@ -113,7 +130,7 @@ export function normalizeRegimen(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
 
   // Normalizar: sin acentos, sin espacios repetidos, mayúsculas, sin puntos en separadores
-  let s = removeAccents(toStr(value)).toUpperCase().replace(/\s+/g, ' ')
+  let s = removeAccents(cleanImportedText(value)).toUpperCase().replace(/\s+/g, ' ')
 
   // Eliminar prefijos de condición PASIVISADOS / PASIVIZADOS / PAV
   // Pueden aparecer al inicio seguidos de " - " o " "
@@ -279,14 +296,15 @@ export function isIrrationalAltaDate(date: Date): boolean {
  * El serial 60 representa el inexistente 29/02/1900; lo llevamos al 28/02/1900
  * y corregimos los seriales posteriores sin tocar fechas modernas.
  *
- * Se usa floor (no round) para que un resto horario dentro de la celda (ej.
- * serial ...999 = 23:59:59) no infle la fecha al día siguiente.
+ * Se usa round para conservar el día calendario que Excel muestra cuando el
+ * serial llega con una hora interna cercana a medianoche (ej. ...999).
  */
 function excelSerialToUTC(serial: number): Date {
   const MS_POR_DIA = 86_400_000
   const epoch = Date.UTC(1899, 11, 31)
-  const correctedSerial = serial > 59 ? serial - 1 : serial
-  return new Date(epoch + Math.floor(correctedSerial * MS_POR_DIA))
+  const wholeSerial = Math.round(serial)
+  const correctedSerial = wholeSerial > 59 ? wholeSerial - 1 : wholeSerial
+  return new Date(epoch + correctedSerial * MS_POR_DIA)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -326,7 +344,14 @@ export function dateToStr(d: Date | null | undefined): string {
  * trim + colapso de espacios + uppercase.
  */
 export function normStr(v: unknown): string {
-  return toStr(v).toUpperCase()
+  // La comparación no debe depender de la tabla de caracteres del XLS ni de
+  // cómo fue guardado el valor anterior en la DB. Los caracteres no ASCII que
+  // no pudieron repararse se excluyen solo de la clave de comparación; el
+  // payload conserva el texto limpio para no alterar datos visibles.
+  return removeAccents(cleanImportedText(v))
+    .replace(/[^\x00-\x7F]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
 }
 
 /**
