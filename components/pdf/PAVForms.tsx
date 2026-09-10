@@ -1,6 +1,7 @@
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 import { LOGO_PAV_HEADER } from './logoBase64';
+import { CUADRO_CUMPLIMIENTO } from './cuadroCumplimientoBase64';
 
 const styles = StyleSheet.create({
   page: {
@@ -597,16 +598,6 @@ export const RenunciaForm = ({ data }: { data: PAVData }) => {
   const asc = (fs: number) => 0.718 * fs; // alto de la caja por encima de la línea de base
   const bTop = (baseline: number, fs: number) => baseline - asc(fs);
 
-  const itemRow = (baseline: number, label: string, fill?: number, fs?: number) => (
-    <View style={{
-      position: 'absolute', left: 121.2, top: bTop(baseline, fs ?? 11),
-      width: 272, flexDirection: 'row', fontSize: fs ?? 11,
-    }}>
-      <Text style={{ flexShrink: 0 }}>{label}</Text>
-      <Text style={{ flex: 1, textAlign: 'right' }}>{'.'.repeat(fill ?? 45)}</Text>
-    </View>
-  );
-
   return (
     <Document>
       <Page size="A4" style={{ position: 'relative', fontFamily: 'Helvetica' }}>
@@ -664,41 +655,12 @@ export const RenunciaForm = ({ data }: { data: PAVData }) => {
           Firma del agente
         </Text>
 
-        {/* CUMPLIMIENTO DE NORMAS ESTATUTARIAS */}
-        <View style={{ position: 'absolute', left: 58.4, top: 424, width: 476.6, height: 276, borderWidth: 1, borderColor: '#000' }}>
-          <Text style={{ position: 'absolute', left: 66.2, top: bTop(445.5, 11), fontSize: 11, fontFamily: 'Helvetica-Bold' }}>
-            CUMPLIMIENTO DE NORMAS ESTATUTARIAS
-          </Text>
-          <Text style={{ position: 'absolute', left: 67.8, top: bTop(466.4, 11), fontSize: 11 }}>
-            Indicar en cada item SI o NO segun corresponda
-          </Text>
-          {itemRow(488.4, '1)  Credencial Interna ')}
-          {itemRow(511.1, '2)  Otros Bienes ')}
-          {itemRow(533.7, '3)  Cumplimiento Calificación Especial')}
-          {itemRow(556.2, '4)  Presentó su RENUNCIA c/30 días de anticipación')}
-          {itemRow(578.8, '5)  Puede Abonar el servicio ')}
-          <Text style={{ position: 'absolute', left: 66.2, top: bTop(606.4, 11), width: 469, fontSize: 11 }}>
-            No Cumplimiento Causa: {'.'.repeat(46)}
-          </Text>
-          <Text style={{ position: 'absolute', left: 66.2, top: bTop(626.6, 11), width: 469, fontSize: 11 }}>
-            {'.'.repeat(78)}
-          </Text>
-          <Text style={{ position: 'absolute', left: 66.2, top: bTop(646.9, 11), fontSize: 11 }}>
-            FECHA: ........./........./.........
-          </Text>
-        </View>
-
-        {/* Firmas del Director (doble regla) */}
-        <View style={{ position: 'absolute', left: 58.4, top: 713.9, width: 476, borderTopWidth: 1, borderTopColor: '#000' }} />
-        <View style={{ position: 'absolute', left: 58.4, top: 716.2, width: 476, borderTopWidth: 1, borderTopColor: '#000' }} />
-        <Text style={{ position: 'absolute', left: 345, top: bTop(739.3, 10), width: 190, textAlign: 'center', fontSize: 10, fontFamily: 'Helvetica-Bold' }}>
-          Firma y Sello del DIRECTOR
-        </Text>
-        <View style={{ position: 'absolute', left: 58.4, top: 741.5, width: 476, borderTopWidth: 1, borderTopColor: '#000' }} />
-        <View style={{ position: 'absolute', left: 58.4, top: 743.6, width: 476, borderTopWidth: 1, borderTopColor: '#000' }} />
-        <Text style={{ position: 'absolute', left: 345, top: bTop(757.9, 10), width: 190, textAlign: 'center', fontSize: 10, fontFamily: 'Helvetica-Bold' }}>
-          DE LA REPARTICION
-        </Text>
+        {/* CUMPLIMIENTO DE NORMAS ESTATUTARIAS + doble regla y firmas del
+            Director: imagen fija del PDF original (se imprime y se completa a
+            mano). El texto dinámico queda solo en la parte superior. */}
+        <Image src={CUADRO_CUMPLIMIENTO} style={{
+          position: 'absolute', left: 58.0, top: 433.5, width: 478.0, height: 330.5,
+        }} />
 
         {/* Pie de página institucional */}
         <Text style={{ position: 'absolute', left: 58.4, top: bTop(813.3, 11), width: 476, textAlign: 'center', fontSize: 11, fontFamily: 'Helvetica-Bold' }}>

@@ -16,8 +16,15 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { calcEdadActual } from '@/lib/bulk-sync/processors'
-import type { AnalysisResult, CommitApiResponse } from '@/lib/bulk-sync/types'
+import type {
+  AnalysisResult,
+  CommitApiResponse,
+  DpRowActualizada,
+  CaRowActualizada,
+} from '@/lib/bulk-sync/types'
+import type { Prisma as PrismaClientNS } from '@prisma/client'
 import { getAuthenticatedSession } from '@/lib/auth-session'
 import {
   calcAntiguedadRecibo,
@@ -28,7 +35,26 @@ import {
 } from '@/utils/calculosPrevisionales'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 300
+
+// Filas por sentencia SQL en la actualización masiva.
+// SQL Server limita a 2100 parámetros por sentencia:
+//   - DP: 13 columnas + 1 parámetro → 150 filas = 1951 parámetros
+//   - CA: 3 columnas → 450 filas = 1350 parámetros
+// Cuantas menos sentencias, menos round-trips contra la DB (la transacción
+// interactiva de Prisma serializa todas las operaciones en UNA sola conexión).
+const FILAS_SQL_DP = 150
+const FILAS_SQL_CA = 450
+
+// Concurrencia acotada para el recálculo de derivados (post-commit).
+const CONCURRENCIA_RECALCULO = 50
+
+/** Divide un array en lotes de tamaño `size`. */
+function chunk<T>(arr: readonly T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
+}
 
 // Flag en memoria para prevenir doble ejecución accidental
 let isRunning = false
@@ -57,6 +83,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
   }
 
   isRunning = true
+  // Fase actual para mensajes de error honestos (#1 transacción con rollback real,
+  // #2 recálculo post-commit donde los cambios YA quedaron guardados).
+  let faseActual: 'transaccion' | 'recalculo' = 'transaccion'
+  const t0 = Date.now()
   try {
     // ── Leer análisis del body ──────────────────────────────────────────────
     let analysis: AnalysisResult
@@ -90,9 +120,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
     let caSinCambios = ca.sinCambios
     let caErrores = 0
 
-    // ── Transacción principal ───────────────────────────────────────────────
-    await prisma.$transaction(
-      async (tx) => {
+    // ── Transacción principal (forma arreglo) ───────────────────────────────
+    // OJO: en SQL Server los $executeRaw DENTRO de prisma.$transaction(async
+    // tx => ...) NO corren sobre la conexión de la transacción (evidencia
+    // empírica: "Invalid object name '#tmp_dp'": cada ejecución raw usó otra
+    // conexión del pool y las temp tables son por-sesión). La forma arreglo
+    // $transaction([...]) envuelve TODAS las operaciones (incluidas las raw) en
+    // UNA sola transacción real, con rollback íntegro. Cada sentencia lleva su
+    // propia data (no hay estado entre statements, así que no hacen falta temp
+    // tables).
+    const operaciones: Prisma.PrismaPromise<unknown>[] = []
         // ────────────────────────────────────────────────────────────────────
         // PASO 1: Insertar nuevos agentes en DATOS_PERSONALES_AGENTE_JUBILA
         // (batch: createMany en lugar de insert 1x1)
@@ -126,41 +163,82 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
               USUARIO_ULTIMA_MODIFICACION: session.userId,
             }
           })
-          await tx.dATOS_PERSONALES_AGENTE_JUBILA.createMany({ data: nuevosData })
+          operaciones.push(
+            prisma.dATOS_PERSONALES_AGENTE_JUBILA.createMany({ data: nuevosData }),
+          )
           dpInsertados = nuevosData.length
         }
 
         // ────────────────────────────────────────────────────────────────────
         // PASO 2: Actualizar agentes existentes en DATOS_PERSONALES_AGENTE_JUBILA
-        // Los campos derivados se recalculan para todos al finalizar la carga.
+        // UPDATE MASIVO con CAST explícito por columna (anula la inferencia de
+        // tipos de SQL Server sobre VALUES, que con NULLs asumía `int` → P2010
+        // code 245). Una sentencia por lote; todas dentro de la $transaction
+        // arreglo → rollback íntegro ante cualquier fallo.
         // ────────────────────────────────────────────────────────────────────
-        // PASO 2: Actualizar agentes existentes en DATOS_PERSONALES_AGENTE_JUBILA
-        // Los derivados (edad estimada, fecha estimada, antigüedades) se recalculan
-        // para TODOS en el post-commit, por lo que aquí no se consulta el régimen
-        // (elimina el findUnique 1x1 por fila, fuente del cuello de botella).
-        for (const row of dp.actualizadas) {
-          const fechaNac = new Date(row.payload.FECHA_NACIMIENTO)
+        const filasDp = dp.actualizadas.map((row) => ({
+          dni: row.dni,
+          nombre: row.payload.NOMBRE_AGENTE,
+          apellido: row.payload.APELLIDO_AGENTE,
+          fechaNac: new Date(row.payload.FECHA_NACIMIENTO),
+          secretaria: row.payload.SECRETARIA ?? null,
+          programa: row.payload.PROGRAMA ?? null,
+          cargo: row.payload.CARGO ?? null,
+          sexo: row.payload.SEXO ?? null,
+          estado: row.payload.ESTADO_ACTIVO,
+          cuil: row.payload.CUIL ?? null,
+          telefono: row.payload.NUMERO_TELEFONO ?? null,
+          correo: row.payload.CORREO_ELECTRONICO ?? null,
+          idRegimen: row.payload.ID_REGIMEN_JUBILATORIO ?? null,
+        }))
 
-          await tx.dATOS_PERSONALES_AGENTE_JUBILA.update({
-            where: { DNI_AGENTE: row.dni },
-            data: {
-              NOMBRE_AGENTE: row.payload.NOMBRE_AGENTE,
-              APELLIDO_AGENTE: row.payload.APELLIDO_AGENTE,
-              FECHA_NACIMIENTO: fechaNac,
-              SECRETARIA: row.payload.SECRETARIA,
-              PROGRAMA: row.payload.PROGRAMA,
-              CARGO: row.payload.CARGO,
-              SEXO: row.payload.SEXO,
-              ESTADO_ACTIVO: row.payload.ESTADO_ACTIVO,
-              CUIL: row.payload.CUIL,
-              NUMERO_TELEFONO: row.payload.NUMERO_TELEFONO,
-              CORREO_ELECTRONICO: row.payload.CORREO_ELECTRONICO,
-              ID_REGIMEN_JUBILATORIO: row.payload.ID_REGIMEN_JUBILATORIO,
-              FECHA_ULTIMA_MODIFICACION: new Date(),
-              USUARIO_ULTIMA_MODIFICACION: session.userId,
-            },
-          })
-          dpActualizados++
+        if (filasDp.length > 0) {
+          for (const lote of chunk(filasDp, FILAS_SQL_DP)) {
+            operaciones.push(
+              prisma.$executeRaw(Prisma.sql`
+                UPDATE dATOS_PERSONALES_AGENTE_JUBILA
+                SET
+                  NOMBRE_AGENTE = v.nombre,
+                  APELLIDO_AGENTE = v.apellido,
+                  FECHA_NACIMIENTO = v.fechaNac,
+                  SECRETARIA = v.secretaria,
+                  PROGRAMA = v.programa,
+                  CARGO = v.cargo,
+                  SEXO = v.sexo,
+                  ESTADO_ACTIVO = v.estado,
+                  CUIL = v.cuil,
+                  NUMERO_TELEFONO = v.telefono,
+                  CORREO_ELECTRONICO = v.correo,
+                  ID_REGIMEN_JUBILATORIO = v.idRegimen,
+                  FECHA_ULTIMA_MODIFICACION = GETDATE(),
+                  USUARIO_ULTIMA_MODIFICACION = ${session.userId}
+                FROM (
+                  VALUES ${Prisma.join(
+                    lote.map(
+                      (f) => Prisma.sql`(
+                        CAST(${f.dni} AS NVARCHAR(50)),
+                        CAST(${f.nombre} AS NVARCHAR(255)),
+                        CAST(${f.apellido} AS NVARCHAR(255)),
+                        CAST(${f.fechaNac} AS DATE),
+                        CAST(${f.secretaria} AS NVARCHAR(255)),
+                        CAST(${f.programa} AS NVARCHAR(255)),
+                        CAST(${f.cargo} AS NVARCHAR(255)),
+                        CAST(${f.sexo} AS NVARCHAR(50)),
+                        CAST(${f.estado} AS BIT),
+                        CAST(${f.cuil} AS NVARCHAR(20)),
+                        CAST(${f.telefono} AS NVARCHAR(50)),
+                        CAST(${f.correo} AS NVARCHAR(255)),
+                        CAST(${f.idRegimen} AS INT)
+                      )`,
+                    ),
+                    ',',
+                  )}
+                ) AS v(dni, nombre, apellido, fechaNac, secretaria, programa, cargo, sexo, estado, cuil, telefono, correo, idRegimen)
+                WHERE dATOS_PERSONALES_AGENTE_JUBILA.DNI_AGENTE = v.dni
+              `),
+            )
+          }
+          dpActualizados = filasDp.length
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -168,43 +246,69 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
         // (batch: createMany)
         // ────────────────────────────────────────────────────────────────────
         if (ca.nuevas.length > 0) {
-          await tx.cARRERA_ADMINISTRATIVA.createMany({
-            data: ca.nuevas.map((row) => ({
-              DOCUMENTO_EMPLEADO: row.dni,
-              FECHA_ALTA: new Date(row.fechaAltaISO),
-              FECHA_BAJA: row.fechaBajaISO ? new Date(row.fechaBajaISO) : null,
-              CAUSA_BAJA: row.causaBaja,
-              // FECHA_CREACION tiene DEFAULT NOW() en la DB
-            })),
-          })
+          operaciones.push(
+            prisma.cARRERA_ADMINISTRATIVA.createMany({
+              data: ca.nuevas.map((row) => ({
+                DOCUMENTO_EMPLEADO: row.dni,
+                FECHA_ALTA: new Date(row.fechaAltaISO),
+                FECHA_BAJA: row.fechaBajaISO ? new Date(row.fechaBajaISO) : null,
+                CAUSA_BAJA: row.causaBaja,
+                // FECHA_CREACION tiene DEFAULT NOW() en la DB
+              })),
+            }),
+          )
           caInsertadas = ca.nuevas.length
         }
 
         // ────────────────────────────────────────────────────────────────────
         // PASO 4: Actualizar fases existentes en CARRERA_ADMINISTRATIVA
         // IDENTIFICAR SIEMPRE por ID_CARRERA (nunca solo por DNI)
-        // NUNCA tocar FECHA_CREACION de fases existentes
+        // NUNCA tocar FECHA_CREACION de fases existentes.
+        // UPDATE MASIVO con CAST explícito (misma técnica que PASO 2).
         // ────────────────────────────────────────────────────────────────────
-        for (const row of ca.actualizadas) {
-          await tx.cARRERA_ADMINISTRATIVA.update({
-            where: { ID_CARRERA: row.idCarrera },
-            data: {
-              FECHA_BAJA: row.payload.FECHA_BAJA ? new Date(row.payload.FECHA_BAJA) : null,
-              CAUSA_BAJA: row.payload.CAUSA_BAJA,
-              // NO modificar: FECHA_ALTA, DOCUMENTO_EMPLEADO, FECHA_CREACION
-            },
-          })
-          caActualizadas++
+        const filasCa = ca.actualizadas.map((row) => ({
+          id: row.idCarrera,
+          fechaBaja: row.payload.FECHA_BAJA ? new Date(row.payload.FECHA_BAJA) : null,
+          causaBaja: row.payload.CAUSA_BAJA ?? null,
+        }))
+
+        if (filasCa.length > 0) {
+          for (const lote of chunk(filasCa, FILAS_SQL_CA)) {
+            operaciones.push(
+              prisma.$executeRaw(Prisma.sql`
+                UPDATE cARRERA_ADMINISTRATIVA
+                SET
+                  FECHA_BAJA = v.fechaBaja,
+                  CAUSA_BAJA = v.causaBaja
+                FROM (
+                  VALUES ${Prisma.join(
+                    lote.map(
+                      (f) => Prisma.sql`(
+                        CAST(${f.id} AS INT),
+                        CAST(${f.fechaBaja} AS DATETIME),
+                        CAST(${f.causaBaja} AS NVARCHAR(255))
+                      )`,
+                    ),
+                    ',',
+                  )}
+                ) AS v(id, fechaBaja, causaBaja)
+                WHERE cARRERA_ADMINISTRATIVA.ID_CARRERA = v.id
+              `),
+            )
+          }
+          caActualizadas = filasCa.length
         }
-      },
-      {
-        timeout: 300_000, // 5 minutos máximo para la transacción de escritura
-      },
+      await prisma.$transaction(operaciones)
+
+    console.log(
+      `[bulk-sync/commit] Transacción completada en ${((Date.now() - t0) / 1000).toFixed(1)}s — ` +
+        `dp: ${dpInsertados} nuevas + ${dpActualizados} actualizadas | ca: ${caInsertadas} nuevas + ${caActualizadas} actualizadas`,
     )
 
     // ── Post-commit: recalcular y persistir derivados para TODOS ─────────────
     // Se ejecuta después de insertar las fases para que la antigüedad incluya
     // también las nuevas carreras de esta importación.
+    faseActual = 'recalculo'
     await recalcularDerivadosDeTodosLosAgentes(session.userId)
 
     return NextResponse.json({
@@ -224,12 +328,30 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
       },
     })
   } catch (err) {
-    console.error('[bulk-sync/commit] Error — ROLLBACK ejecutado:', err)
+    const errMsg = err instanceof Error ? err.message : String(err)
+    const codigo =
+      typeof err === 'object' && err !== null && 'code' in err
+        ? String((err as { code?: unknown }).code ?? '')
+        : ''
+    const enTransaccion = faseActual === 'transaccion'
+    // ¿Timeout de la transacción u otro error? Solo el timeout garantiza rollback real.
+    const esTimeout = /P2028|P2020|timed?out|timeout|P2034/i.test(`${codigo} ${errMsg}`)
+    console.error(
+      `[bulk-sync/commit] Error en fase=${faseActual} tras ${((Date.now() - t0) / 1000).toFixed(1)}s — ` +
+        `${codigo ? codigo + ' ' : ''}${errMsg}`,
+    )
+
+    const detalle = `${codigo ? codigo + ': ' : ''}${errMsg}`.slice(0, 300)
+    const mensajeSegunFase = enTransaccion
+      ? esTimeout
+        ? 'La actualización tardó demasiado y se revirtieron todos los cambios. Por favor intentá nuevamente.'
+        : 'Ocurrió un error durante la actualización y se revirtieron todos los cambios.'
+      : 'Los cambios ya se guardaron en la base de datos, pero falló el recálculo de edades y antigüedades. No se revirtió nada; contactá al administrador con este detalle:'
     return NextResponse.json(
       {
         ok: false,
-        error:
-          'Error durante la actualización. Se revirtieron todos los cambios. Por favor intentá nuevamente.',
+        error: `${mensajeSegunFase} [${detalle}]`,
+        detalle,
       },
       { status: 500 },
     )
@@ -243,14 +365,21 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function recalcularDerivadosDeTodosLosAgentes(usuarioId: number): Promise<void> {
+  const t0 = Date.now()
   const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
     include: {
       REGIMEN_JUBILATORIO: true,
       CARRERA_ADMINISTRATIVA: { orderBy: { FECHA_ALTA: 'asc' } },
     },
   })
+  console.log(
+    `[bulk-sync/commit] Recalculo: ${agentes.length} agentes cargados en ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+  )
 
-  const updates: Promise<unknown>[] = []
+  // Consultas LAZY: solo se emiten contra la DB cuando el lote está por correrse.
+  // (Antes se llamaba prisma.update() en el loop y TODAS las consultas salían de
+  // golpe, saturando el pool de conexiones de SQL Server → timeouts P2024/P2028.)
+  const queries: (() => PrismaClientNS.PrismaPromise<unknown>)[] = []
 
   for (const agente of agentes) {
     const fechaNacimiento = new Date(agente.FECHA_NACIMIENTO)
@@ -274,7 +403,7 @@ async function recalcularDerivadosDeTodosLosAgentes(usuarioId: number): Promise<
     const antiguedadRecibo = calcAntiguedadRecibo(fases)
     const antiguedadLicencias = calcAntiguedadLicencias(fases, fechaEstimada)
 
-    updates.push(
+    queries.push(() =>
       prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
         where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA },
         data: {
@@ -289,10 +418,21 @@ async function recalcularDerivadosDeTodosLosAgentes(usuarioId: number): Promise<
     )
   }
 
-  // Ejecutar por lotes concurrentes (el pool de Prisma acota la concurrencia)
-  // en lugar de 1 update secuencial por agente.
-  const TAMANIO_LOTE = 200
-  for (let i = 0; i < updates.length; i += TAMANIO_LOTE) {
-    await Promise.all(updates.slice(i, i + TAMANIO_LOTE))
+  // Ejecutar por lotes concurrentes ACOTADOS: cada wing espera a terminar antes
+  // de lanzar el siguiente, manteniendo a lo sumo `CONCURRENCIA_RECALCULO`
+  // consultas en vuelo (el pool de Prisma no se ve saturado).
+  const wings = chunk(queries, CONCURRENCIA_RECALCULO)
+  for (let i = 0; i < wings.length; i++) {
+    await Promise.all(wings[i].map((q) => q()))
+    if ((i + 1) % 20 === 0) {
+      const hechas = Math.min((i + 1) * CONCURRENCIA_RECALCULO, queries.length)
+      console.log(
+        `[bulk-sync/commit] Recalculo: ${hechas}/${queries.length} agentes en ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+      )
+    }
   }
+
+  console.log(
+    `[bulk-sync/commit] Recalculo finalizado: ${queries.length} agentes en ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+  )
 }
