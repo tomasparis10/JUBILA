@@ -957,6 +957,50 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
   }
 }
 
+export interface AgenteFaltaUnAno {
+  dni: string
+  nombreCompleto: string
+}
+
+/**
+ * Devuelve agentes cuya fecha estimada cae desde hoy hasta el último
+ * día del mismo mes del año siguiente, ambos límites inclusive.
+ */
+export async function getAgentesFaltaUnAno(): Promise<AgenteFaltaUnAno[]> {
+  try {
+    await requireAuthenticatedSession()
+    const hoy = new Date()
+    const inicio = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate()))
+    const finMesSiguienteAnio = new Date(Date.UTC(hoy.getUTCFullYear() + 1, hoy.getUTCMonth() + 1, 0, 23, 59, 59, 999))
+
+    const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
+      where: {
+        FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: {
+          gte: inicio,
+          lte: finMesSiguienteAnio,
+        },
+      },
+      select: {
+        DNI_AGENTE: true,
+        NOMBRE_AGENTE: true,
+        APELLIDO_AGENTE: true,
+      },
+      orderBy: [
+        { APELLIDO_AGENTE: 'asc' },
+        { NOMBRE_AGENTE: 'asc' },
+      ],
+    })
+
+    return agentes.map((agente) => ({
+      dni: agente.DNI_AGENTE ?? '',
+      nombreCompleto: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+    }))
+  } catch (error) {
+    console.error('[getAgentesFaltaUnAno] Error:', error)
+    return []
+  }
+}
+
 export interface RegimenOption {
   id: number
   nombre: string

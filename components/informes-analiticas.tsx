@@ -6,6 +6,7 @@ import {
   Download, FileBarChart, Activity, CheckCircle2, RefreshCcw,
   FileText, Calendar, BarChart, Shield, FileEdit,
 } from 'lucide-react'
+import { getAgentesFaltaUnAno } from '@/app/actions/agentes'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -27,12 +28,12 @@ interface InformeCard {
 
 // ── Datos ─────────────────────────────────────────────────────────────────────
 
-const BENEFICIO_DIST: BeneficioItem[] = [
-  { label: 'Jub. Ordinaria',       count: 356, pct: 42, color: '#1d4ed8' },
-  { label: 'Invalidez Provisoria', count: 203, pct: 24, color: '#7c3aed' },
-  { label: 'Pasividad',            count: 152, pct: 18, color: '#059669' },
-  { label: 'Jub. por Edad Avanzada', count: 85, pct: 10, color: '#d97706' },
-  { label: 'Otros Beneficios',     count: 51,  pct: 6,  color: '#dc2626' },
+const CAUSA_BAJA_DIST: BeneficioItem[] = [
+  { label: 'Jubilación',       count: 356, pct: 42, color: '#1d4ed8' },
+  { label: 'Renuncia',         count: 203, pct: 24, color: '#7c3aed' },
+  { label: 'Invalidez',        count: 152, pct: 18, color: '#059669' },
+  { label: 'Fallecimiento',    count: 85,  pct: 10, color: '#d97706' },
+  { label: 'Otras causas',     count: 51,  pct: 6,  color: '#dc2626' },
 ]
 
 const MAX_MONTHLY = 50
@@ -60,11 +61,31 @@ const SECRETARIA_RIGHT: SecretariaItem[] = [
 
 export default function InformesAnaliticas() {
   const [animBars, setAnimBars] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setAnimBars(true), 200)
     return () => clearTimeout(t)
   }, [])
+
+  const descargarInformeFaltaUnAno = async () => {
+    setDownloading(true)
+    try {
+      const agentes = await getAgentesFaltaUnAno()
+      const XLSX = await import('xlsx')
+      const rows = agentes.map((agente) => ({
+        DNI: agente.dni,
+        'Nombre completo': agente.nombreCompleto,
+      }))
+      const worksheet = XLSX.utils.json_to_sheet(rows)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Falta un año')
+      const fecha = new Date().toISOString().slice(0, 10)
+      XLSX.writeFile(workbook, `agentes_falta_un_ano_${fecha}.xlsx`)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   // ── KPI cards data (inline para poder usar JSX en icon) ─────────────────────
   const kpis = [
@@ -122,10 +143,10 @@ export default function InformesAnaliticas() {
   const informes: InformeCard[] = [
     {
       id: 'inf-001',
-      titulo: 'Informe Mensual de Jubilaciones',
-      tipo: 'Mensual', tipoColor: 'text-blue-700', tipoBg: 'bg-blue-100',
-      paginas: 14, fecha: '12/08/2026',
-      descripcion: 'Resumen ejecutivo de altas, bajas y modificaciones de beneficios procesados durante el mes en curso.',
+      titulo: 'Agentes a un año de jubilarse',
+      tipo: 'Operativo', tipoColor: 'text-blue-700', tipoBg: 'bg-blue-100',
+      paginas: 0, fecha: 'Actualizado al descargar',
+      descripcion: 'Listado de agentes cuya fecha estimada de jubilación está entre hoy y el último día del mismo mes del año siguiente.',
       iconBg: 'bg-blue-100', iconColor: 'text-blue-600',
       accentColor: 'border-l-blue-500',
       icon: <FileEdit className="w-5 h-5" />,
@@ -219,17 +240,17 @@ export default function InformesAnaliticas() {
         </div>
       </div>
 
-      {/* ── Sección 2: Gráficos (Beneficio + Evolución mensual) ───────────── */}
+      {/* ── Sección 2: Gráficos (Causa de baja + Evolución mensual) ───────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-        {/* 2.1 Distribución por Tipo de Beneficio */}
+        {/* 2.1 Distribución por Causa de Baja */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-base font-bold text-slate-800">Distribución por Tipo de Beneficio</h3>
+            <h3 className="text-base font-bold text-slate-800">Distribución por Causa de Baja</h3>
             <span className="text-xs text-slate-400 font-medium">Total: 847</span>
           </div>
           <div className="flex flex-col gap-4">
-            {BENEFICIO_DIST.map((item) => (
+            {CAUSA_BAJA_DIST.map((item) => (
               <div key={item.label}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-sm text-slate-700 font-medium">{item.label}</span>
@@ -378,15 +399,17 @@ export default function InformesAnaliticas() {
                   </span>
                   <span className="flex items-center gap-1">
                     <FileText className="w-3 h-3" />
-                    {inf.paginas} páginas
+                    {inf.id === 'inf-001' ? 'Excel' : `${inf.paginas} páginas`}
                   </span>
                 </div>
                 <button
                   type="button"
+                  onClick={inf.id === 'inf-001' ? descargarInformeFaltaUnAno : undefined}
+                  disabled={inf.id === 'inf-001' && downloading}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-xs font-bold transition shadow-sm"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  Descargar PDF
+                  {inf.id === 'inf-001' ? (downloading ? 'Generando...' : 'Descargar Excel') : 'Descargar PDF'}
                 </button>
               </div>
             </div>
