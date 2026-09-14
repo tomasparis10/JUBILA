@@ -47,22 +47,15 @@ export default function Sidebar({
   return (
     <aside className="flex flex-col w-56 min-h-screen bg-[#172554] text-slate-200 flex-shrink-0">
       {/* Brand */}
-      <div className="flex flex-col items-center px-4 pt-6 pb-5 border-b border-[#1e3a8a]">
-        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-[#1e3a8a] mb-3 overflow-hidden">
-          {/* Favicon como logo del sistema */}
+      <div className="flex h-[100px] flex-shrink-0 items-center justify-center px-3 bg-white border-b border-slate-200">
+        <div className="relative w-full h-20 overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/icon.png"
-            alt="Sistema de Jubilaciones"
-            className="w-full h-full object-cover"
+            src="/jubila-logo.png"
+            alt="Jubila - Sistema de Gestión Previsional"
+            className="absolute left-0 top-1/2 w-full h-auto -translate-y-1/2"
           />
         </div>
-        <p className="text-[11px] font-bold text-blue-200 tracking-widest uppercase text-center leading-tight">
-          Municipalidad
-        </p>
-        <p className="text-[11px] text-blue-400 tracking-wide text-center leading-tight mt-0.5">
-          Sistema de Jubila
-        </p>
       </div>
 
       {/* Navigation */}

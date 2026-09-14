@@ -95,6 +95,7 @@ export interface PAVData {
   jNroExpCaja?: string;
   fechaDesdeProv?: string;
   fechaHastaProv?: string;
+  causaBaja?: string;
 }
 
 // ── 1. FORMULARIO DE ACEPTACIÓN / RECHAZO PAV ────────────────────────────────
@@ -586,8 +587,8 @@ export const RenunciaRazonesParticulares = ({ data }: { data: PAVData }) => {
   );
 };
 
-// ── 7b. RENUNCIA (formulario "Renuncia" del botón Renuncia) ───────────────────
-export const RenunciaForm = ({ data }: { data: PAVData }) => {
+// ── 7b. RENUNCIA Y RENUNCIA PROVISORIA ────────────────────────────────────────
+const RenunciaTemplate = ({ data, provisoria = false }: { data: PAVData; provisoria?: boolean }) => {
   const fechaStr = data.fechaActual || new Date().toLocaleDateString('es-AR', {
     day: 'numeric',
     month: 'long',
@@ -606,15 +607,22 @@ export const RenunciaForm = ({ data }: { data: PAVData }) => {
           <Image src={LOGO_PAV_HEADER} style={{ width: 440, height: 46 }} />
         </View>
 
-        {/* Título */}
-        <Text style={{ position: 'absolute', left: 58.4, top: bTop(115.2, 22), fontSize: 22, fontFamily: 'Helvetica-Bold' }}>
-          RENUNCIA
-        </Text>
+        <View style={{ position: 'absolute', left: 58.4, top: 99, width: 478, borderTopWidth: 1, borderTopColor: '#aaa' }} />
 
-        {/* Lugar y fecha (arriba a la derecha) */}
-        <Text style={{ position: 'absolute', left: 405, top: bTop(116.6, 10), fontSize: 10 }}>
-          Córdoba, <Text style={{ fontFamily: 'Helvetica-Bold' }}>{fechaStr}</Text>
-        </Text>
+        {/* Título y fecha se centran verticalmente de forma independiente. */}
+        <View style={{ position: 'absolute', left: 58.4, top: 99, width: 285, height: 31, justifyContent: 'center' }}>
+          <Text style={{ fontSize: 22, lineHeight: 1, fontFamily: 'Helvetica-BoldOblique' }}>
+            {provisoria ? 'RENUNCIA PROVISORIA' : 'RENUNCIA'}
+          </Text>
+        </View>
+
+        <View style={{ position: 'absolute', left: 350, top: 99, width: 186, height: 31, justifyContent: 'center', alignItems: 'flex-end' }}>
+          <Text style={{ fontSize: 10, lineHeight: 1 }}>
+            Córdoba, <Text style={{ fontFamily: 'Helvetica-Bold' }}>{fechaStr}</Text>
+          </Text>
+        </View>
+
+        <View style={{ position: 'absolute', left: 58.4, top: 130, width: 478, borderTopWidth: 0.7, borderTopColor: '#ccc' }} />
 
         {/* Encabezado de la nota */}
         <Text style={{ position: 'absolute', left: 58.4, top: bTop(138.8, 11), fontSize: 11 }}>
@@ -627,22 +635,33 @@ export const RenunciaForm = ({ data }: { data: PAVData }) => {
           De mi mayor consideración:
         </Text>
 
-        {/* Párrafo principal justificado (3 líneas) */}
+        {/* Párrafo principal */}
         <Text style={{
           position: 'absolute', left: 58.4, top: bTop(222.0, 11), width: 486.8,
-          fontSize: 11, lineHeight: 1.84, textAlign: 'justify',
+          fontSize: 11, lineHeight: provisoria ? 1.65 : 1.84, textAlign: 'justify',
         }}>
           Quien suscribe <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.nombreCompleto}</Text>, M.I.:{' '}
           <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.dni || ''}</Text>, Cargo:{' '}
           <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.cargo || ''}</Text> tiene el agrado de dirigirse a Ud.
-          por su intermedio ante quien corresponda, con el objeto de elevar la RENUNCIA al cargo, a partir del{' '}
-          <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.fBaja || ''}</Text>.
+          por su intermedio ante quien corresponda, con el objeto de elevar la RENUNCIA al cargo,{' '}
+          {provisoria ? (
+            <Text>
+              para el período comprendido desde el <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.fechaDesdeProv || ''}</Text>{' '}
+              hasta el <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.fechaHastaProv || ''}</Text>, siendo esta última la fecha efectiva de baja.
+              Motiva la presente solicitud: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.causaBaja || ''}</Text>.
+            </Text>
+          ) : (
+            <Text>
+              a partir del <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.fBaja || ''}</Text>.
+            </Text>
+          )}
         </Text>
 
-        {/* Motivo */}
-        <Text style={{ position: 'absolute', left: 58.4, top: bTop(282.8, 11), fontSize: 11 }}>
-          Motiva la presente solicitud: <Text style={{ fontFamily: 'Helvetica-Bold' }}>Jubilación Ordinaria</Text>.
-        </Text>
+        {!provisoria && (
+          <Text style={{ position: 'absolute', left: 58.4, top: bTop(282.8, 11), fontSize: 11 }}>
+            Motiva la presente solicitud: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.causaBaja || ''}</Text>.
+          </Text>
+        )}
 
         {/* Saludo centrado */}
         <Text style={{ position: 'absolute', left: 58.4, top: bTop(335.3, 11), width: 476, textAlign: 'center', fontSize: 11 }}>
@@ -662,6 +681,17 @@ export const RenunciaForm = ({ data }: { data: PAVData }) => {
           position: 'absolute', left: 58.0, top: 433.5, width: 478.0, height: 330.5,
         }} />
 
+        {/* La firma incluida en la imagen original está recortada; se reemplaza
+            por texto para asegurar que ambas líneas se impriman completas. */}
+        <View style={{ position: 'absolute', left: 335, top: 730, width: 205, height: 48, backgroundColor: '#fff' }} />
+        <View style={{ position: 'absolute', left: 345, top: 733, width: 190, borderTopWidth: 1, borderTopColor: '#aaa', borderTopStyle: 'dashed' }} />
+        <Text style={{ position: 'absolute', left: 335, top: 740, width: 205, textAlign: 'center', fontSize: 10, fontFamily: 'Helvetica-Bold' }}>
+          Firma y Sello del DIRECTOR
+        </Text>
+        <Text style={{ position: 'absolute', left: 335, top: 755, width: 205, textAlign: 'center', fontSize: 10, fontFamily: 'Helvetica-Bold' }}>
+          DE LA REPARTICIÓN
+        </Text>
+
         {/* Pie de página institucional */}
         <Text style={{ position: 'absolute', left: 58.4, top: bTop(813.3, 11), width: 476, textAlign: 'center', fontSize: 11, fontFamily: 'Helvetica-Bold' }}>
           Chacabuco 737 – subsecretaria.capitalhumano@cordoba.gov.ar
@@ -670,6 +700,14 @@ export const RenunciaForm = ({ data }: { data: PAVData }) => {
     </Document>
   );
 };
+
+export const RenunciaForm = ({ data }: { data: PAVData }) => (
+  <RenunciaTemplate data={data} />
+);
+
+export const RenunciaProvisoriaForm = ({ data }: { data: PAVData }) => (
+  <RenunciaTemplate data={data} provisoria />
+);
 
 // ── 7. INVALIDEZ PROVISORIA (Pase Interno) ────────────────────────────────────
 export const InvalidesProvisoria = ({ data }: { data: PAVData }) => {

@@ -32,6 +32,7 @@ export interface JubilacionRecord {
   fechaNacimiento: string
   edadActual: string
   fechaEstimadaJubilacionOrdinaria: string
+  noCumpleAportesEdadAvanzada: boolean
   beneficio: string
   nroTramite: string
   fBaja: string
@@ -96,7 +97,7 @@ export type BtnExtra = { label: string; icon: string; action?: string }
 export const BOTONES_POR_BENEFICIO: Record<string, BtnExtra[]> = {
   '1': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
   '2': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
-  '3': [{ label: 'Renuncia Provisoria', icon: 'printer' }, { label: 'Pase Interno', icon: 'send', action: 'pase-interno' }],
+  '3': [{ label: 'Renuncia Provisoria', icon: 'printer', action: 'renuncia-provisoria' }, { label: 'Pase Interno', icon: 'send', action: 'pase-interno' }],
   '4': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
   '5': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
   '6': [],

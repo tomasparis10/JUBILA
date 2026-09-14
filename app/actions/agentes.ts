@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import type { JubilacionRecord, RenovProvisoria, TrazabilidadEntry } from '@/lib/jubilaciones-data'
 import { requireAuthenticatedSession } from '@/lib/auth-session'
 import { calcEdadActual } from '@/lib/bulk-sync/resolvers'
+import { calcAntiguedadRecibo, noCumpleAportesEdadAvanzada } from '@/utils/calculosPrevisionales'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -174,6 +175,10 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
     fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
     edadActual: agente.FECHA_NACIMIENTO ? String(calcEdadActual(new Date(agente.FECHA_NACIMIENTO))) : '',
     fechaEstimadaJubilacionOrdinaria,
+    noCumpleAportesEdadAvanzada: noCumpleAportesEdadAvanzada(
+      agente.FECHA_NACIMIENTO,
+      agente.CARRERA_ADMINISTRATIVA,
+    ),
     beneficio: beneficioActual ? String(beneficioActual.ID_BENEFICIO) : '',
     nroTramite: j.INFORMACION_LABORAL_NUMERO_TRAMITE ?? '',
     fBaja: dbDateToStr(j.INFORMACION_LABORAL_FECHA_BAJA),
@@ -207,7 +212,9 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
  * dejando todos los campos de jubilación vacíos.
  * Se usa cuando el agente existe pero aún no tiene JUBILA registrada.
  */
-type AgenteBase = NonNullable<Awaited<ReturnType<typeof prisma.dATOS_PERSONALES_AGENTE_JUBILA.findFirst>>>
+type AgenteBase = NonNullable<Awaited<ReturnType<typeof prisma.dATOS_PERSONALES_AGENTE_JUBILA.findFirst>>> & {
+  CARRERA_ADMINISTRATIVA?: { FECHA_ALTA: Date | null; FECHA_BAJA: Date | null }[]
+}
 
 function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
   const renovacionVacia = { nroResRenov: '', nroExpMun: '', fechaDesdeExp: '', fechaHastaExp: '', jNroExpCaja: '', nroDcto: '' }
@@ -239,6 +246,10 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
     fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
     edadActual: agente.FECHA_NACIMIENTO ? String(calcEdadActual(new Date(agente.FECHA_NACIMIENTO))) : '',
     fechaEstimadaJubilacionOrdinaria,
+    noCumpleAportesEdadAvanzada: noCumpleAportesEdadAvanzada(
+      agente.FECHA_NACIMIENTO,
+      agente.CARRERA_ADMINISTRATIVA ?? [],
+    ),
     beneficio: '1',
     nroTramite: '', fBaja: '', nroExpMunRenuncia: '',
     jNroExpCaja: '', nroResRenCaja: '', nroExpCajDeneg: '',
@@ -420,6 +431,7 @@ export async function getLastRecord(): Promise<JubilacionRecord | null> {
     // Si no hay JUBILA, devolver el último agente de datos personales
     const lastAgente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findFirst({
       orderBy: { ID_DATOS_PERSONALES_AGENTE_JUBILA: 'desc' },
+      include: { CARRERA_ADMINISTRATIVA: true },
     })
     if (lastAgente) {
       return mapAgenteToRecord(lastAgente)
@@ -821,8 +833,8 @@ export interface AgenteProxJubilacion {
   antiguedadRecibo: string
   antiguedadLicencias: string
   regimen: string // NOMBRE_REGIMEN
-  aniosServicio: string // ANOS_APORTES_REQUERIDOS
-  edadRequerida: string // EDAD_REQUERIDA
+  edadActual: string
+  noCumpleAportesEdadAvanzada: boolean
 }
 
 /**
@@ -831,23 +843,32 @@ export interface AgenteProxJubilacion {
  * del mes en curso (±30 días respecto a hoy).
  * No recalcula ninguna fecha: usa FECHA_ESTIMADA_JUBILACIÓN_ORDINARIA de la DB.
  */
-export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]> {
+export async function getAgentesProxJubilacion(fechaDesde?: string, fechaHasta?: string): Promise<AgenteProxJubilacion[]> {
   try {
     await requireAuthenticatedSession()
     const hoy = new Date()
-    const hace30Dias = new Date(hoy)
-    hace30Dias.setDate(hoy.getDate() - 30)
-    const en30Dias = new Date(hoy)
-    en30Dias.setDate(hoy.getDate() + 30)
-    hace30Dias.setUTCHours(0, 0, 0, 0)
-    en30Dias.setUTCHours(23, 59, 59, 999)
+    let inicio = new Date(hoy)
+    let fin = new Date(hoy)
+    inicio.setDate(hoy.getDate() - 30)
+    fin.setDate(hoy.getDate() + 30)
+
+    if (fechaDesde && fechaHasta) {
+      const desdeParts = fechaDesde.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+      const hastaParts = fechaHasta.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+      if (!desdeParts || !hastaParts) return []
+      inicio = new Date(Date.UTC(Number(desdeParts[1]), Number(desdeParts[2]) - 1, Number(desdeParts[3])))
+      fin = new Date(Date.UTC(Number(hastaParts[1]), Number(hastaParts[2]) - 1, Number(hastaParts[3])))
+      if (inicio > fin) return []
+    }
+    inicio.setUTCHours(0, 0, 0, 0)
+    fin.setUTCHours(23, 59, 59, 999)
 
     const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
       where: {
         ESTADO_ACTIVO: true,
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: {
-          gte: hace30Dias,
-          lte: en30Dias,
+          gte: inicio,
+          lte: fin,
         },
       },
       select: {
@@ -863,11 +884,13 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
         ANTIGUEDAD_RECIBO_CALC: true,
         ANTIGUEDAD_LICENCIAS_CALC: true,
         ID_REGIMEN_JUBILATORIO: true,
+        CARRERA_ADMINISTRATIVA: {
+          select: { FECHA_ALTA: true, FECHA_BAJA: true },
+        },
       },
       orderBy: {
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: 'asc',
       },
-      take: 100,
     })
 
     const regimenes = await prisma.rEGIMEN_JUBILATORIO.findMany({
@@ -886,11 +909,14 @@ export async function getAgentesProxJubilacion(): Promise<AgenteProxJubilacion[]
         secretaria: agente.SECRETARIA ?? '',
         programa: agente.PROGRAMA ?? '',
         cargo: agente.CARGO ?? '',
-        antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
         antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
         regimen: regimen?.NOMBRE_REGIMEN ?? '',
-        aniosServicio: regimen ? String(regimen.ANOS_APORTES_REQUERIDOS) : '',
-        edadRequerida: regimen ? String(regimen.EDAD_REQUERIDA) : '',
+        antiguedadRecibo: calcAntiguedadRecibo(agente.CARRERA_ADMINISTRATIVA),
+        edadActual: agente.FECHA_NACIMIENTO ? String(calcEdadActual(new Date(agente.FECHA_NACIMIENTO))) : '',
+        noCumpleAportesEdadAvanzada: noCumpleAportesEdadAvanzada(
+          agente.FECHA_NACIMIENTO,
+          agente.CARRERA_ADMINISTRATIVA,
+        ),
       }
     })
   } catch (error) {
@@ -925,6 +951,9 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
         ANTIGUEDAD_RECIBO_CALC: true,
         ANTIGUEDAD_LICENCIAS_CALC: true,
         ID_REGIMEN_JUBILATORIO: true,
+        CARRERA_ADMINISTRATIVA: {
+          select: { FECHA_ALTA: true, FECHA_BAJA: true },
+        },
       },
     })
 
@@ -944,11 +973,14 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
         secretaria: agente.SECRETARIA ?? '',
         programa: agente.PROGRAMA ?? '',
         cargo: agente.CARGO ?? '',
-        antiguedadRecibo: agente.ANTIGUEDAD_RECIBO_CALC ?? '',
+        antiguedadRecibo: calcAntiguedadRecibo(agente.CARRERA_ADMINISTRATIVA),
         antiguedadLicencias: agente.ANTIGUEDAD_LICENCIAS_CALC ?? '',
         regimen: regimen?.NOMBRE_REGIMEN ?? '',
-        aniosServicio: regimen ? String(regimen.ANOS_APORTES_REQUERIDOS) : '',
-        edadRequerida: regimen ? String(regimen.EDAD_REQUERIDA) : '',
+        edadActual: agente.FECHA_NACIMIENTO ? String(calcEdadActual(new Date(agente.FECHA_NACIMIENTO))) : '',
+        noCumpleAportesEdadAvanzada: noCumpleAportesEdadAvanzada(
+          agente.FECHA_NACIMIENTO,
+          agente.CARRERA_ADMINISTRATIVA,
+        ),
       }
     })
   } catch (error) {
@@ -963,21 +995,32 @@ export interface AgenteFaltaUnAno {
 }
 
 /**
- * Devuelve agentes cuya fecha estimada cae desde hoy hasta el último
- * día del mismo mes del año siguiente, ambos límites inclusive.
+ * Devuelve agentes cuya fecha estimada cae en el rango indicado. Si no se
+ * informa un rango, usa desde hoy hasta el último día del mismo mes del año
+ * siguiente. Ambos límites son inclusivos.
  */
-export async function getAgentesFaltaUnAno(): Promise<AgenteFaltaUnAno[]> {
+export async function getAgentesFaltaUnAno(fechaDesde?: string, fechaHasta?: string): Promise<AgenteFaltaUnAno[]> {
   try {
     await requireAuthenticatedSession()
     const hoy = new Date()
-    const inicio = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate()))
-    const finMesSiguienteAnio = new Date(Date.UTC(hoy.getUTCFullYear() + 1, hoy.getUTCMonth() + 1, 0, 23, 59, 59, 999))
+    let inicio = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate()))
+    let fin = new Date(Date.UTC(hoy.getUTCFullYear() + 1, hoy.getUTCMonth() + 1, 0, 23, 59, 59, 999))
+
+    if (fechaDesde && fechaHasta) {
+      const desdeParts = fechaDesde.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+      const hastaParts = fechaHasta.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+      if (!desdeParts || !hastaParts) throw new Error('Rango de fechas inválido.')
+
+      inicio = new Date(Date.UTC(Number(desdeParts[1]), Number(desdeParts[2]) - 1, Number(desdeParts[3])))
+      fin = new Date(Date.UTC(Number(hastaParts[1]), Number(hastaParts[2]) - 1, Number(hastaParts[3]), 23, 59, 59, 999))
+      if (inicio > fin) throw new Error('La fecha desde no puede ser posterior a la fecha hasta.')
+    }
 
     const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
       where: {
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: {
           gte: inicio,
-          lte: finMesSiguienteAnio,
+          lte: fin,
         },
       },
       select: {

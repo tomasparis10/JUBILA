@@ -237,6 +237,16 @@ function addYearsUTC(fecha: Date, anos: number): Date {
 /** Edad (en años) a la que corresponde la jubilación por edad avanzada. */
 const EDAD_AVANZADA = 70
 
+/** Indica si al cumplir 70 años el agente no supera los 10 años de aportes. */
+export function noCumpleAportesEdadAvanzada(
+  fechaNacimiento: Date | null | undefined,
+  fases: FaseCarrera[],
+): boolean {
+  if (!fechaNacimiento) return false
+  const fechaEdadAvanzada = addYearsUTC(new Date(fechaNacimiento), EDAD_AVANZADA)
+  return calcDiasAportes(fases, fechaEdadAvanzada) <= 10 * 365
+}
+
 /**
  * Obtiene la primera fecha en que se cumplen edad y aportes del régimen.
  * Los aportes reales se computan solamente hasta la fecha en que se alcanza la

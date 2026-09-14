@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Search, UserCircle, Pencil, Save, FileText, Upload,
   Printer, Send, Archive, CheckSquare, GitBranch, X, CheckCircle2,
-  Loader2, AlertCircle, MessageSquare,
+  Loader2, AlertCircle, AlertTriangle, MessageSquare,
 } from 'lucide-react'
 import {
   BENEFICIO_OPTIONS,
@@ -17,7 +17,7 @@ import { FormField, SelectField, SectionCard } from '@/components/form-field'
 import { formatExpediente, formatDate, formatCuil, extractDniFromCuil, getDateValidationError } from '@/lib/format-utils'
 import { searchAgentes, updateJubila, createJubila, createAgente, getLastRecord } from '@/app/actions/agentes'
 import { GestorArchivos } from '@/components/gestor-archivos'
-import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud, PavPaseArchivo, PavDesistido, PaseReparticion, RenunciaRazonesParticulares, InvalidesProvisoria, RenunciaForm } from '@/components/pdf/PAVForms'
+import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud, PavPaseArchivo, PavDesistido, PaseReparticion, RenunciaRazonesParticulares, InvalidesProvisoria, RenunciaForm, RenunciaProvisoriaForm } from '@/components/pdf/PAVForms'
 
 // Normalize a string: lowercase + remove diacritics
 function normalize(str: string): string {
@@ -300,6 +300,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       fechaNacimiento: '',
       edadActual: '',
       fechaEstimadaJubilacionOrdinaria: '',
+      noCumpleAportesEdadAvanzada: false,
       estadoActivo: true,
       trazabilidad: [],
       beneficio: '1', nroTramite: '',
@@ -508,6 +509,14 @@ if (!selected.programa?.trim()) missing.push('• Programa')
       if (!selected.cargo?.trim()) missing.push('• Cargo')
       if (!selected.programa?.trim()) missing.push('• Programa')
       if (!selected.fBaja?.trim()) missing.push('• Fecha Baja (Información Laboral)')
+    } else if (action === 'renuncia-provisoria') {
+      // Renuncia Provisoria: usa el período de la última renovación cargada
+      if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
+      if (!selected.dni?.trim()) missing.push('• DNI')
+      if (!selected.cargo?.trim()) missing.push('• Cargo')
+      if (!selected.programa?.trim()) missing.push('• Programa')
+      if (!ultimaRenovacion?.fechaDesdeExp?.trim()) missing.push('• Fecha Desde (última renovación provisoria)')
+      if (!ultimaRenovacion?.fechaHastaExp?.trim()) missing.push('• Fecha Hasta (última renovación provisoria)')
     } else if (action === 'pase-interno') {
       // Invalidez Provisoria: datos personales + información laboral + renovaciones
       if (!selected.apellidoNombres?.trim()) missing.push('• Nombre y Apellido')
@@ -566,6 +575,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
         jNroExpCaja: selected.jNroExpCaja,
         fechaDesdeProv: ultimaRenovacion?.fechaDesdeExp ?? '',
         fechaHastaProv: ultimaRenovacion?.fechaHastaExp ?? '',
+        causaBaja: BENEFICIO_OPTIONS.find((beneficio) => beneficio.value === selected.beneficio)?.label ?? '',
       }
       let doc: React.ReactElement
       let filename = ''
@@ -590,6 +600,9 @@ if (!selected.programa?.trim()) missing.push('• Programa')
       } else if (action === 'renuncia') {
         doc = <RenunciaForm data={pavData} />
         filename = `Renuncia_${selected.dni}.pdf`
+      } else if (action === 'renuncia-provisoria') {
+        doc = <RenunciaProvisoriaForm data={pavData} />
+        filename = `RenunciaProvisoria_${selected.dni}.pdf`
       } else if (action === 'pase-interno') {
         doc = <InvalidesProvisoria data={pavData} />
         filename = `PaseInterno_${selected.dni}.pdf`
@@ -1176,9 +1189,9 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     placeholder="Cargo desempeñado"
                     readOnly={true}
                   />
-                  {/* 9. Antigüedad Recibo */}
+                  {/* 9. Antigüedad Real */}
                   <FormField
-                    label="Antigüedad Recibo"
+                    label="Antigüedad Real"
                     value={selected.antiguedadRecibo}
                     onChange={(v) => update('antiguedadRecibo', v)}
                     placeholder="Ej: 25 años, 4 meses"
@@ -1210,9 +1223,9 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     placeholder="Ej: 65"
                     readOnly={true}
                   />
-                  {/* 13. Fecha Estimada Jubilación Ordinaria */}
+                  {/* 13. Fecha Estimada Jubilación */}
                   <FormField
-                    label="Fecha Estimada Jubilación Ordinaria"
+                    label="Fecha Estimada Jubilación"
                     value={selected.fechaEstimadaJubilacionOrdinaria}
                     onChange={(v) => update('fechaEstimadaJubilacionOrdinaria', v)}
                     placeholder="dd/mm/aaaa"
@@ -1220,6 +1233,15 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     readOnly={true}
                   />
                 </div>
+                {selected.noCumpleAportesEdadAvanzada && (
+                  <div className="flex items-start gap-2 mt-4 px-4 py-3 rounded-lg border border-red-300 bg-red-50 text-red-800">
+                    <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-bold">No cumple los aportes mínimos para jubilarse por edad avanzada.</p>
+                      <p className="text-xs mt-0.5">Al llegar a los 70 años no supera los 10 años de servicio requeridos.</p>
+                    </div>
+                  </div>
+                )}
               </SectionCard>
 
               {/* ── Card 2: Información Laboral ──────────────────────────────── */}

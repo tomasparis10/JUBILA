@@ -20,6 +20,43 @@ interface OperacionesPanelProps {
   onChangeOp: (op: OpMode) => void
 }
 
+function AntiguedadField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const numbers = value.match(/\d+/g) ?? []
+  const parts = [numbers[0] ?? '0', numbers[1] ?? '0', numbers[2] ?? '0']
+
+  const updatePart = (index: number, rawValue: string) => {
+    const next = [...parts]
+    next[index] = rawValue.replace(/\D/g, '') || '0'
+    onChange(`${next[0]} Años, ${next[1]} Meses, ${next[2]} Días`)
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        {label}
+      </label>
+      <div className="flex items-center justify-center gap-0.5 overflow-hidden rounded-md border border-slate-200 bg-white px-2 py-2 text-xs text-slate-800 focus-within:border-[#1e3a8a] focus-within:ring-2 focus-within:ring-blue-200">
+        {['Años', 'Meses', 'Días'].map((unit, index) => (
+          <div key={unit} className="flex min-w-0 items-center gap-0.5">
+            {index > 0 && <span className="text-slate-400">,</span>}
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              aria-label={`${label}: ${unit}`}
+              value={parts[index]}
+              onChange={(event) => updatePart(index, event.target.value)}
+              onFocus={(event) => event.target.select()}
+              className="w-[3ch] min-w-0 bg-transparent text-right outline-none"
+            />
+            <span className="whitespace-nowrap text-slate-600">{unit}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Formulario Gestión de Agentes (Crear + Editar + Grilla) ──────────────────
 function GestionAgentes() {
   // ── Estado del formulario ────────────────────────────────────────────────
@@ -389,17 +426,15 @@ function GestionAgentes() {
             onChange={(v) => update('cargo', v)}
             placeholder="Cargo desempeñado"
           />
-          <FormField
+          <AntiguedadField
             label="Antigüedad Recibo"
             value={form.antiguedadRecibo ?? ''}
             onChange={(v) => update('antiguedadRecibo', v)}
-            placeholder="Ej: 10 años, 2 meses"
           />
-          <FormField
+          <AntiguedadField
             label="Antigüedad Licencias"
             value={form.antiguedadLicencias ?? ''}
             onChange={(v) => update('antiguedadLicencias', v)}
-            placeholder="Ej: 10 años, 2 meses"
           />
           <FormField
             label="Fecha Estimada de Jubilación"

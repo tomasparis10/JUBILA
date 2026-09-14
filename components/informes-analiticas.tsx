@@ -62,6 +62,9 @@ const SECRETARIA_RIGHT: SecretariaItem[] = [
 export default function InformesAnaliticas() {
   const [animBars, setAnimBars] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [showDateRange, setShowDateRange] = useState(false)
+  const [draftDateRange, setDraftDateRange] = useState({ from: '', to: '' })
+  const [dateRange, setDateRange] = useState({ from: '', to: '' })
 
   useEffect(() => {
     const t = setTimeout(() => setAnimBars(true), 200)
@@ -71,7 +74,7 @@ export default function InformesAnaliticas() {
   const descargarInformeFaltaUnAno = async () => {
     setDownloading(true)
     try {
-      const agentes = await getAgentesFaltaUnAno()
+      const agentes = await getAgentesFaltaUnAno(dateRange.from || undefined, dateRange.to || undefined)
       const XLSX = await import('xlsx')
       const rows = agentes.map((agente) => ({
         DNI: agente.dni,
@@ -80,8 +83,10 @@ export default function InformesAnaliticas() {
       const worksheet = XLSX.utils.json_to_sheet(rows)
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Falta un año')
-      const fecha = new Date().toISOString().slice(0, 10)
-      XLSX.writeFile(workbook, `agentes_falta_un_ano_${fecha}.xlsx`)
+      const fechaArchivo = dateRange.from && dateRange.to
+        ? `${dateRange.from}_${dateRange.to}`
+        : new Date().toISOString().slice(0, 10)
+      XLSX.writeFile(workbook, `agentes_falta_un_ano_${fechaArchivo}.xlsx`)
     } finally {
       setDownloading(false)
     }
@@ -390,8 +395,59 @@ export default function InformesAnaliticas() {
                 </div>
               </div>
 
+              {inf.id === 'inf-001' && showDateRange && (
+                <div className="mx-5 mb-3 p-3 rounded-xl border border-slate-200 bg-slate-50">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
+                      Desde
+                      <input
+                        type="date"
+                        value={draftDateRange.from}
+                        max={draftDateRange.to || undefined}
+                        onChange={(event) => setDraftDateRange((range) => ({ ...range, from: event.target.value }))}
+                        className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
+                      Hasta
+                      <input
+                        type="date"
+                        value={draftDateRange.to}
+                        min={draftDateRange.from || undefined}
+                        onChange={(event) => setDraftDateRange((range) => ({ ...range, to: event.target.value }))}
+                        className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraftDateRange({ from: '', to: '' })
+                        setDateRange({ from: '', to: '' })
+                        setShowDateRange(false)
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+                    >
+                      Limpiar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!draftDateRange.from || !draftDateRange.to}
+                      onClick={() => {
+                        setDateRange(draftDateRange)
+                        setShowDateRange(false)
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-blue-600 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    >
+                      Aplicar rango
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Footer */}
-              <div className="px-5 pb-5 flex items-center justify-between">
+              <div className="px-5 pb-5 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-4 text-[11px] text-slate-400">
                   <span className="flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
@@ -402,15 +458,27 @@ export default function InformesAnaliticas() {
                     {inf.id === 'inf-001' ? 'Excel' : `${inf.paginas} páginas`}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={inf.id === 'inf-001' ? descargarInformeFaltaUnAno : undefined}
-                  disabled={inf.id === 'inf-001' && downloading}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-xs font-bold transition shadow-sm"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  {inf.id === 'inf-001' ? (downloading ? 'Generando...' : 'Descargar Excel') : 'Descargar PDF'}
-                </button>
+                <div className="flex items-center gap-2 ml-auto">
+                  {inf.id === 'inf-001' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowDateRange((open) => !open)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition shadow-sm"
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      {dateRange.from && dateRange.to ? 'Rango aplicado' : 'Rango de fechas'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={inf.id === 'inf-001' ? descargarInformeFaltaUnAno : undefined}
+                    disabled={inf.id === 'inf-001' && downloading}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold transition shadow-sm"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    {inf.id === 'inf-001' ? (downloading ? 'Generando...' : 'Descargar Excel') : 'Descargar PDF'}
+                  </button>
+                </div>
               </div>
             </div>
           ))}

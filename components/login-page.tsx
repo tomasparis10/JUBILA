@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Shield, User, Lock, LogIn, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { User, Lock, LogIn, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { loginUsuario } from '@/app/actions/auth'
 
 interface LoginPageProps {
@@ -42,20 +42,20 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       <div className="w-full max-w-md mx-4">
         <div className="bg-white rounded-2xl shadow-lg p-8">
           {/* Header */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-[#1e3a8a]">
-              <Shield className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-sm font-bold text-[#1e3a8a] tracking-wider uppercase">
-              Municipalidad de Córdoba
-            </span>
+          <div className="relative w-full h-28 overflow-hidden mb-5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/jubila-logo.png"
+              alt="Jubila - Sistema de Gestión Previsional"
+              className="absolute left-0 top-1/2 w-full h-auto -translate-y-1/2"
+            />
           </div>
 
           {/* Title */}
           <h1 className="text-2xl font-bold text-[#1e3a8a] mb-1 leading-tight">
-            Sistema de Gestión de Jubila
+            Iniciar sesión
           </h1>
-          <p className="text-sm text-slate-500 mb-7">Módulo: Jubilacion</p>
+          <p className="text-sm text-slate-500 mb-7">Ingrese sus credenciales para acceder al sistema.</p>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="flex flex-col gap-5">

@@ -13,11 +13,13 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
   const [loading, setLoading] = useState(true)
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
+  const [draftRange, setDraftRange] = useState({ from: '', to: '' })
+  const [appliedRange, setAppliedRange] = useState({ from: '', to: '' })
 
-  const loadAgentes = useCallback(async () => {
+  const loadAgentes = useCallback(async (from?: string, to?: string) => {
     setLoading(true)
     try {
-      const data = await getAgentesProxJubilacion()
+      const data = await getAgentesProxJubilacion(from, to)
       setAgentes(data)
       setChecked(new Set())
     } catch {
@@ -26,6 +28,18 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
       setLoading(false)
     }
   }, [])
+
+  const applyDateRange = () => {
+    if (!draftRange.from || !draftRange.to) return
+    setAppliedRange(draftRange)
+    void loadAgentes(draftRange.from, draftRange.to)
+  }
+
+  const clearDateRange = () => {
+    setDraftRange({ from: '', to: '' })
+    setAppliedRange({ from: '', to: '' })
+    void loadAgentes()
+  }
 
   useEffect(() => {
     void loadAgentes()
@@ -70,9 +84,12 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
         'Apellido y Nombres': ag.apellidoNombres,
         'Fecha de Nacimiento': ag.fechaNacimiento,
         'Régimen': ag.regimen,
-        'Años de Servicio': ag.aniosServicio,
-        'Edad Requerida': ag.edadRequerida,
+        'Antigüedad Actual': ag.antiguedadRecibo,
+        'Edad Actual': ag.edadActual,
         'Fecha Est. Jubilación': ag.fechaEstimada,
+        'Estado Edad Avanzada': ag.noCumpleAportesEdadAvanzada
+          ? 'No puede jubilarse: no supera 10 años de aportes al cumplir 70 años'
+          : '',
         'Secretaría': ag.secretaria,
         'Programa': ag.programa,
         'Cargo': ag.cargo,
@@ -112,9 +129,50 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
         <div className="flex-1">
           <p className="text-sm font-semibold text-amber-800">Próximos a Jubilar</p>
           <p className="text-xs text-slate-500 mt-0.5">
-            Agentes activos cuya fecha estimada de jubilación cae en el rango de ±30 días respecto de hoy.
+            {appliedRange.from && appliedRange.to
+              ? 'Agentes activos cuya fecha estimada de jubilación cae en el rango seleccionado.'
+              : 'Agentes activos cuya fecha estimada de jubilación cae en el rango de ±30 días respecto de hoy.'}
           </p>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 px-4 py-3 bg-white border border-slate-200 rounded-lg shadow-sm">
+        <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+          Fecha desde
+          <input
+            type="date"
+            value={draftRange.from}
+            max={draftRange.to || undefined}
+            onChange={(event) => setDraftRange((range) => ({ ...range, from: event.target.value }))}
+            className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+          Fecha hasta
+          <input
+            type="date"
+            value={draftRange.to}
+            min={draftRange.from || undefined}
+            onChange={(event) => setDraftRange((range) => ({ ...range, to: event.target.value }))}
+            className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={applyDateRange}
+          disabled={!draftRange.from || !draftRange.to || loading}
+          className="h-9 px-4 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition"
+        >
+          Filtrar
+        </button>
+        <button
+          type="button"
+          onClick={clearDateRange}
+          disabled={(!draftRange.from && !draftRange.to && !appliedRange.from) || loading}
+          className="h-9 px-4 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-xs font-bold transition"
+        >
+          Limpiar
+        </button>
       </div>
 
       {/* ── Lista / tabla ── */}
@@ -122,7 +180,7 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
         <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
           <UserCircle className="w-3.5 h-3.5 text-slate-400" />
           <span className="text-xs font-bold text-[#1e3a8a] uppercase tracking-widest flex-1">
-            {loading ? 'Cargando...' : `${agentes.length} agente${agentes.length !== 1 ? 's' : ''} en condición de jubilarse`}
+            {loading ? 'Cargando...' : `${agentes.length} agente${agentes.length !== 1 ? 's' : ''} en el rango seleccionado`}
           </span>
           {agentes.length > 0 && (
             <>
@@ -175,8 +233,8 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
                   <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider w-24">DNI</th>
                   <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider">Apellido y Nombres</th>
                   <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider">Régimen</th>
-                  <th className="px-3 py-2.5 text-center font-bold text-slate-600 uppercase tracking-wider w-20">Años de Servicio</th>
-                  <th className="px-3 py-2.5 text-center font-bold text-slate-600 uppercase tracking-wider w-20">Edad Requerida</th>
+                  <th className="px-3 py-2.5 text-center font-bold text-slate-600 uppercase tracking-wider w-32">Antigüedad Actual</th>
+                  <th className="px-3 py-2.5 text-center font-bold text-slate-600 uppercase tracking-wider w-20">Edad Actual</th>
                   <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider w-28">Fecha Est. Jubil.</th>
                   <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider hidden md:table-cell">Programa</th>
                   <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider hidden lg:table-cell">Cargo</th>
@@ -185,12 +243,15 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
               <tbody className="divide-y divide-slate-100">
                 {agentes.map((ag) => {
                   const isChecked = checked.has(ag.dni)
+                  const isIneligible = ag.noCumpleAportesEdadAvanzada
                   return (
                     <tr
                       key={ag.dni}
                       onClick={() => toggleCheck(ag.dni)}
                       className={`cursor-pointer transition ${
-                        isChecked ? 'bg-amber-50/70' : 'hover:bg-slate-50'
+                        isIneligible
+                          ? 'bg-red-50 hover:bg-red-100/80'
+                          : isChecked ? 'bg-amber-50/70' : 'hover:bg-slate-50'
                       }`}
                     >
                       <td className="px-3 py-2.5 text-center">
@@ -210,12 +271,22 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
                         >
                           {ag.apellidoNombres || '—'}
                         </button>
+                        {isIneligible && (
+                          <span className="flex items-center gap-1 mt-1 text-[10px] font-bold text-red-700">
+                            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                            No puede jubilarse: no supera 10 años de aportes al cumplir 70 años
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-slate-600">{ag.regimen || '—'}</td>
-                      <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{ag.aniosServicio || '—'}</td>
-                      <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{ag.edadRequerida || '—'}</td>
+                      <td className={`px-3 py-2.5 text-center font-semibold ${isIneligible ? 'text-red-700' : 'text-slate-700'}`}>{ag.antiguedadRecibo || '—'}</td>
+                      <td className={`px-3 py-2.5 text-center font-semibold ${isIneligible ? 'text-red-700' : 'text-slate-700'}`}>{ag.edadActual || '—'}</td>
                       <td className="px-3 py-2.5">
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-semibold">
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border font-semibold ${
+                          isIneligible
+                            ? 'bg-red-100 border-red-300 text-red-700'
+                            : 'bg-amber-50 border-amber-200 text-amber-700'
+                        }`}>
                           {ag.fechaEstimada || '—'}
                         </span>
                       </td>
