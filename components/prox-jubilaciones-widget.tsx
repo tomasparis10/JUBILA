@@ -75,7 +75,6 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
       const dnis = Array.from(checked)
       const data = await getAgentesData(dnis)
 
-      // Importar xlsx dinámicamente (sólo en cliente)
       const XLSX = await import('xlsx')
 
       const rows = data.map((ag) => ({
@@ -97,20 +96,24 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
         'Antigüedad Licencias': ag.antiguedadLicencias,
       }))
 
-      const ws = XLSX.utils.json_to_sheet(rows)
-
-      // Ajustar ancho de columnas automáticamente
-      const colWidths = Object.keys(rows[0] ?? {}).map((key) => ({
-        wch: Math.max(key.length, ...rows.map((r) => String((r as any)[key] ?? '').length)) + 2,
+      const workbook = XLSX.utils.book_new()
+      const worksheet = XLSX.utils.json_to_sheet(rows)
+      worksheet['!cols'] = Object.keys(rows[0] ?? {}).map((key) => ({
+        wch: Math.max(key.length, ...rows.map((row) => String(row[key as keyof typeof row] ?? '').length)) + 2,
       }))
-      ws['!cols'] = colWidths
-
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Jubilaciones')
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Jubilaciones')
 
       const now = new Date()
       const fecha = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}${now.getFullYear()}`
-      XLSX.writeFile(wb, `proximas_jubilaciones_${fecha}.xlsx`)
+      const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+      const url = URL.createObjectURL(new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `proximas_jubilaciones_${fecha}.xlsx`
+      link.click()
+      URL.revokeObjectURL(url)
     } catch (err) {
       console.error('[ProxJubilacionesPanel] Error al exportar:', err)
     } finally {

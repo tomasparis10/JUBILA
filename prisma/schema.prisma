@@ -144,6 +144,7 @@ model USUARIO {
   ID_USUARIO                                  Int                   @id(map: "PK__USUARIO__91136B906C680EBA") @default(autoincrement())
   NOMBRE_USUARIO                              String                @unique(map: "UQ__USUARIO__1E139900200EE1AC") @db.VarChar(255)
   CONTRASENA_USUARIO                          String                @db.VarChar(255)
+  DEBE_CAMBIAR_CONTRASENA                     Boolean               @default(true)
   ARCHIVO_JUBILACION                          ARCHIVO_JUBILACION[]
   DATOS_PERSONALES_AGENTE_JUBILA              DATOS_PERSONALES_AGENTE_JUBILA[]
   DATOS_PERSONALES_AGENTE_JUBILA_DATOS_PERSONALES_AGENTE_JUBILA_USUARIO_ULTIMA_MODIFICACIONToUSUARIO DATOS_PERSONALES_AGENTE_JUBILA[] @relation("DATOS_PERSONALES_AGENTE_JUBILA_USUARIO_ULTIMA_MODIFICACIONToUSUARIO")

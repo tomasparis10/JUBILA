@@ -2,14 +2,21 @@ import pandas as pd
 from sqlalchemy import create_engine
 import numpy as np
 from datetime import datetime
+import os
 
 # -------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE RUTAS Y CONEXIÓN
 # -------------------------------------------------------------------
-ruta_datos_personales = r"C:\Users\julie\OneDrive\Documentos\JUBILA\data\DatosPersonales.xlsx"
-ruta_carrera = r"C:\Users\julie\OneDrive\Documentos\JUBILA\data\CarreraAdministrativa.xlsx"
+ruta_datos_personales = os.environ.get("JUBILA_DATOS_PERSONALES_XLSX")
+ruta_carrera = os.environ.get("JUBILA_CARRERA_XLSX")
+string_conexion = os.environ.get("JUBILA_SQLALCHEMY_URL")
 
-string_conexion = "mssql+pyodbc://usr-wust:Bhq7QLkaC56g@SRV-SQLDEV08/jubila?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes"
+if not ruta_datos_personales or not ruta_carrera or not string_conexion:
+    raise RuntimeError(
+        "Configure JUBILA_DATOS_PERSONALES_XLSX, JUBILA_CARRERA_XLSX "
+        "y JUBILA_SQLALCHEMY_URL antes de ejecutar este script."
+    )
+
 engine = create_engine(string_conexion)
 
 # -------------------------------------------------------------------

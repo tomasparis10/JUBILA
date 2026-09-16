@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
 import LoginPage from '@/components/login-page'
 import Sidebar from '@/components/sidebar'
 import TopBar from '@/components/top-bar'
@@ -10,23 +9,28 @@ import InformesAnaliticas from '@/components/informes-analiticas'
 import OperacionesPanel from '@/components/operaciones-panel'
 import ProxJubilacionesPanel from '@/components/prox-jubilaciones-widget'
 import { getCurrentSession, logoutUsuario } from '@/app/actions/auth'
+import CambiarContrasena from '@/components/cambiar-contrasena'
 
 type NavSection = 'inicio' | 'operaciones' | 'informes' | 'prox-jubilar'
 type OpMode = 'agregar-agente' | 'actualizacion-masiva'
 
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
+  // Renderiza el acceso de inmediato; la sesión existente se recupera en segundo plano.
+  const [loggedIn, setLoggedIn] = useState(false)
   const [username, setUsername] = useState('')
   const [userId, setUserId] = useState<number>(1)
   const [activeSection, setActiveSection] = useState<NavSection>('inicio')
   const [expandedOp, setExpandedOp] = useState(false)
   const [activeOp, setActiveOp] = useState<OpMode | null>(null)
   const [externalDni, setExternalDni] = useState<string | null>(null)
+  const [mustChangePassword, setMustChangePassword] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
-  const handleLogin = (name: string, id: number) => {
+  const handleLogin = (name: string, id: number, mustChange = false) => {
     setUsername(name)
     setUserId(id)
     setLoggedIn(true)
+    setMustChangePassword(mustChange)
   }
 
   useEffect(() => {
@@ -37,11 +41,16 @@ export default function App() {
         setUsername(session.username)
         setUserId(session.userId)
         setLoggedIn(true)
+        setMustChangePassword(Boolean(session.mustChangePassword))
       } else {
         setLoggedIn(false)
       }
+    }).catch(() => {
+      if (active) setLoggedIn(false)
     })
-    return () => { active = false }
+    return () => {
+      active = false
+    }
   }, [])
 
   const handleLogout = async () => {
@@ -69,16 +78,15 @@ export default function App() {
     setExternalDni(dni)
   }
 
-  if (loggedIn === null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#dce8f5]">
-        <Loader2 className="w-7 h-7 animate-spin text-[#1e3a8a]" />
-      </div>
-    )
-  }
-
   if (!loggedIn) {
     return <LoginPage onLogin={handleLogin} />
+  }
+
+  if (mustChangePassword || showChangePassword) {
+    return <CambiarContrasena obligatorio={mustChangePassword} onBack={() => setShowChangePassword(false)} onDone={() => {
+      setMustChangePassword(false)
+      setShowChangePassword(false)
+    }} />
   }
 
   return (
@@ -98,7 +106,7 @@ export default function App() {
 
       {/* Right side: topbar + main */}
       <div className="flex flex-col flex-1 overflow-hidden">
-        <TopBar username={username} onLogout={handleLogout} />
+        <TopBar username={username} onLogout={handleLogout} onChangePassword={() => setShowChangePassword(true)} />
 
         {activeSection === 'inicio' && (
           <main className="flex-1 overflow-y-auto">

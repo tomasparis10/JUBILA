@@ -6,6 +6,7 @@ import type { JubilacionRecord, RenovProvisoria, TrazabilidadEntry } from '@/lib
 import { requireAuthenticatedSession } from '@/lib/auth-session'
 import { calcEdadActual } from '@/lib/bulk-sync/resolvers'
 import { calcAntiguedadRecibo, noCumpleAportesEdadAvanzada } from '@/utils/calculosPrevisionales'
+import { logServerError } from '@/lib/safe-error'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -388,7 +389,7 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
       return toRecords(parciales)
     }
   } catch (error) {
-    console.error('[searchAgentes] Error:', error)
+    logServerError('[searchAgentes] Error:', error)
     throw new Error('Error al buscar agentes en la base de datos.')
   }
 }
@@ -439,7 +440,7 @@ export async function getLastRecord(): Promise<JubilacionRecord | null> {
 
     return null
   } catch (error) {
-    console.error('[getLastRecord] Error:', error)
+    logServerError('[getLastRecord] Error:', error)
     return null
   }
 }
@@ -451,7 +452,7 @@ export async function getJubilaById(id: string): Promise<JubilacionRecord | null
     if (!jubila || jubila.BIT_BORRADO) return null
     return mapJubilaToRecord(jubila)
   } catch (error) {
-    console.error('[getJubilaById] Error:', error)
+    logServerError('[getJubilaById] Error:', error)
     throw new Error('Error al obtener el registro de jubilación.')
   }
 }
@@ -462,10 +463,11 @@ export async function getJubilaById(id: string): Promise<JubilacionRecord | null
 export async function getJubilaList(take = 50): Promise<JubilacionRecord[]> {
   try {
     await requireAuthenticatedSession()
+    const safeTake = Number.isFinite(take) ? Math.max(1, Math.min(Math.trunc(take), 100)) : 50
     const jubilas = await prisma.jUBILA.findMany({
       where: { BIT_BORRADO: false },
       orderBy: { FECHA_ULTIMA_MODIFICACION: 'desc' },
-      take,
+      take: safeTake,
       include: {
         DATOS_PERSONALES_AGENTE_JUBILA: {
           include: {
@@ -486,7 +488,7 @@ export async function getJubilaList(take = 50): Promise<JubilacionRecord[]> {
     })
     return jubilas.map(mapJubilaToRecord)
   } catch (error) {
-    console.error('[getJubilaList] Error:', error)
+    logServerError('[getJubilaList] Error:', error)
     return []
   }
 }
@@ -586,7 +588,7 @@ export async function updateJubila(
     const record = fresh ? mapJubilaToRecord(fresh) : undefined
     return { ok: true, record }
   } catch (error) {
-    console.error('[updateJubila] Error:', error)
+    logServerError('[updateJubila] Error:', error)
     return { ok: false, error: 'Error al guardar los cambios en la base de datos.' }
   }
 }
@@ -672,7 +674,7 @@ export async function createAgente(
     revalidatePath('/')
     return { ok: true, id: `agente-${nuevoAgente.ID_DATOS_PERSONALES_AGENTE_JUBILA}`, record }
   } catch (error) {
-    console.error('[createAgente] Error:', error)
+    logServerError('[createAgente] Error:', error)
     return { ok: false, error: 'Error al registrar el nuevo agente en la base de datos.' }
   }
 }
@@ -795,7 +797,7 @@ export async function createJubila(
     const record = fresh ? mapJubilaToRecord(fresh) : undefined
     return { ok: true, id: String(jubila.ID_JUBILA), record }
   } catch (error) {
-    console.error('[createJubila] Error:', error)
+    logServerError('[createJubila] Error:', error)
     return { ok: false, error: 'Error al crear el registro en la base de datos.' }
   }
 }
@@ -813,7 +815,7 @@ export async function deleteJubila(id: string): Promise<{ ok: boolean; error?: s
     revalidatePath('/')
     return { ok: true }
   } catch (error) {
-    console.error('[deleteJubila] Error:', error)
+    logServerError('[deleteJubila] Error:', error)
     return { ok: false, error: 'Error al eliminar el registro.' }
   }
 }
@@ -920,7 +922,7 @@ export async function getAgentesProxJubilacion(fechaDesde?: string, fechaHasta?:
       }
     })
   } catch (error) {
-    console.error('[getAgentesProxJubilacion] Error:', error)
+    logServerError('[getAgentesProxJubilacion] Error:', error)
     return []
   }
 }
@@ -984,7 +986,7 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
       }
     })
   } catch (error) {
-    console.error('[getAgentesData] Error:', error)
+    logServerError('[getAgentesData] Error:', error)
     return []
   }
 }
@@ -1039,7 +1041,7 @@ export async function getAgentesFaltaUnAno(fechaDesde?: string, fechaHasta?: str
       nombreCompleto: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
     }))
   } catch (error) {
-    console.error('[getAgentesFaltaUnAno] Error:', error)
+    logServerError('[getAgentesFaltaUnAno] Error:', error)
     return []
   }
 }
@@ -1066,7 +1068,7 @@ export async function getRegimenes(): Promise<RegimenOption[]> {
       aniosAportes: r.ANOS_APORTES_REQUERIDOS,
     }))
   } catch (error) {
-    console.error('[getRegimenes] Error:', error)
+    logServerError('[getRegimenes] Error:', error)
     return []
   }
 }
@@ -1092,7 +1094,7 @@ export async function getCantidadProxJubilar(): Promise<number> {
       },
     })
   } catch (error) {
-    console.error('[getCantidadProxJubilar] Error:', error)
+    logServerError('[getCantidadProxJubilar] Error:', error)
     return 0
   }
 }
@@ -1110,7 +1112,7 @@ export async function getRegimenDeAgente(dni: string): Promise<string> {
     })
     return agente?.ID_REGIMEN_JUBILATORIO ? String(agente.ID_REGIMEN_JUBILATORIO) : ''
   } catch (error) {
-    console.error('[getRegimenDeAgente] Error:', error)
+    logServerError('[getRegimenDeAgente] Error:', error)
     return ''
   }
 }
@@ -1190,7 +1192,7 @@ export async function updateAgenteDatos(
     const record = mapAgenteToRecord(updated)
     return { ok: true, record }
   } catch (error) {
-    console.error('[updateAgenteDatos] Error:', error)
+    logServerError('[updateAgenteDatos] Error:', error)
     return { ok: false, error: 'Error al actualizar los datos del agente en la base de datos.' }
   }
 }

@@ -5,7 +5,7 @@ import { User, Lock, LogIn, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { loginUsuario } from '@/app/actions/auth'
 
 interface LoginPageProps {
-  onLogin: (username: string, userId: number) => void
+  onLogin: (username: string, userId: number, mustChange?: boolean) => void
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
@@ -24,14 +24,21 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     }
     setLoading(true)
     try {
-      const result = await loginUsuario(username.trim(), password.trim())
+      const result = await Promise.race([
+        loginUsuario(username.trim(), password.trim()),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => reject(new Error('LOGIN_TIMEOUT')), 15_000)
+        }),
+      ])
       if (result.ok && result.username && result.userId != null) {
-        onLogin(result.username, result.userId)
+        onLogin(result.username, result.userId, Boolean(result.mustChangePassword))
       } else {
         setError(result.error ?? 'Usuario o contraseña incorrectos.')
       }
-    } catch {
-      setError('Error de conexión. Intente nuevamente.')
+    } catch (submitError) {
+      setError(submitError instanceof Error && submitError.message === 'LOGIN_TIMEOUT'
+        ? 'El servidor no respondió. Verifique la conexión con la base de datos e intente nuevamente.'
+        : 'Error de conexión. Intente nuevamente.')
     } finally {
       setLoading(false)
     }

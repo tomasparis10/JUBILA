@@ -80,13 +80,22 @@ export default function InformesAnaliticas() {
         DNI: agente.dni,
         'Nombre completo': agente.nombreCompleto,
       }))
-      const worksheet = XLSX.utils.json_to_sheet(rows)
       const workbook = XLSX.utils.book_new()
+      const worksheet = XLSX.utils.json_to_sheet(rows)
+      worksheet['!cols'] = [{ wch: 15 }, { wch: 40 }]
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Falta un año')
       const fechaArchivo = dateRange.from && dateRange.to
         ? `${dateRange.from}_${dateRange.to}`
         : new Date().toISOString().slice(0, 10)
-      XLSX.writeFile(workbook, `agentes_falta_un_ano_${fechaArchivo}.xlsx`)
+      const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+      const url = URL.createObjectURL(new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `agentes_falta_un_ano_${fechaArchivo}.xlsx`
+      link.click()
+      URL.revokeObjectURL(url)
     } finally {
       setDownloading(false)
     }
