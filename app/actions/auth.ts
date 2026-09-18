@@ -19,6 +19,7 @@ export interface LoginResult {
   ok: boolean
   username?: string
   userId?: number
+  role?: string
   mustChangePassword?: boolean
   error?: string
 }
@@ -92,6 +93,7 @@ export async function loginUsuario(
       ok: true,
       username: usuario.NOMBRE_USUARIO,
       userId: usuario.ID_USUARIO,
+      role: usuario.ROL,
       mustChangePassword: usuario.DEBE_CAMBIAR_CONTRASENA || !tieneHashBcrypt,
     }
   } catch (error) {
@@ -161,6 +163,7 @@ export async function getCurrentSession(): Promise<LoginResult> {
       ok: true,
       username: session.username,
       userId: session.userId,
+      role: session.role,
       mustChangePassword: session.mustChangePassword,
     }
   } catch (error) {

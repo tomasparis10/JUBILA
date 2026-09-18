@@ -107,9 +107,9 @@ async function fetchJubilaById(id: number) {
           },
         },
       },
-      HISTORIAL_BENEFICIO: {
-        include: { BENEFICIO: true },
-        orderBy: [{ FECHA_INICIO_BENEFICIO: 'asc' }, { ID_HISTORIAL_BENEFICIO: 'asc' }],
+      HISTORIAL_CAUSA_BAJA: {
+        include: { CAUSA_BAJA: true },
+        orderBy: [{ FECHA_DESDE_CAUSA_BAJA: 'asc' }, { ID_HISTORIAL_CAUSA_BAJA: 'asc' }],
       },
       OTORGAMIENTO_RENOVACION_PROVISORIAS: {
         orderBy: { ID_OTORGAMIENTO_RENOVACION_PROVISORIAS: 'asc' },
@@ -130,17 +130,17 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
   const antiguedadLicencias = agente.ANTIGUEDAD_LICENCIAS_CALC ?? ''
   const fechaEstimadaJubilacionOrdinaria = dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA)
 
-  // Trazabilidad: cada entrada del historial de beneficios
-  const trazabilidad: TrazabilidadEntry[] = j.HISTORIAL_BENEFICIO.map((h) => ({
-    fecha: dbDateToStr(h.FECHA_INICIO_BENEFICIO),
-    beneficio: h.BENEFICIO.NOMBRE,
+  // Trazabilidad: cada entrada del historial de causas de baja
+  const trazabilidad: TrazabilidadEntry[] = j.HISTORIAL_CAUSA_BAJA.map((h) => ({
+    fecha: dbDateToStr(h.FECHA_DESDE_CAUSA_BAJA),
+    causaBaja: h.CAUSA_BAJA.NOMBRE_CAUSA_BAJA,
     observacion: '',
   }))
 
-  // Beneficio actual: el último del historial sin fecha de fin
-  const beneficioActual = [...j.HISTORIAL_BENEFICIO]
+  // Causa de baja actual: la última del historial sin fecha de fin
+  const causaBajaActual = [...j.HISTORIAL_CAUSA_BAJA]
     .reverse()
-    .find((h) => !h.FECHA_FIN_BENEFICIO)
+    .find((h) => !h.FECHA_FIN_CAUSA_BAJA)
 
   // Renovaciones: siempre 3 filas (rellenar con vacíos si hay menos)
   const rawRenovaciones = j.OTORGAMIENTO_RENOVACION_PROVISORIAS
@@ -180,7 +180,7 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
       agente.FECHA_NACIMIENTO,
       agente.CARRERA_ADMINISTRATIVA,
     ),
-    beneficio: beneficioActual ? String(beneficioActual.ID_BENEFICIO) : '',
+    causaBaja: causaBajaActual ? String(causaBajaActual.ID_CAUSA_BAJA) : '',
     nroTramite: j.INFORMACION_LABORAL_NUMERO_TRAMITE ?? '',
     fBaja: dbDateToStr(j.INFORMACION_LABORAL_FECHA_BAJA),
     nroExpMunRenuncia: j.INFORMACION_LABORAL_NUMERO_EXPEDIENTE_MUNICIPAL_RENUNCIA ?? '',
@@ -251,7 +251,7 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
       agente.FECHA_NACIMIENTO,
       agente.CARRERA_ADMINISTRATIVA ?? [],
     ),
-    beneficio: '1',
+    causaBaja: '1',
     nroTramite: '', fBaja: '', nroExpMunRenuncia: '',
     jNroExpCaja: '', nroResRenCaja: '', nroExpCajDeneg: '',
     fInicExpMunPav: '', nroExpedienteMun: '', fInfPrevCaja: '',
@@ -286,9 +286,9 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
       orderBy: { FECHA_INICIO_CREACION_JUBILA: 'desc' as const },
       take: 1,
       include: {
-        HISTORIAL_BENEFICIO: {
-          include: { BENEFICIO: true },
-          orderBy: { FECHA_INICIO_BENEFICIO: 'asc' as const },
+        HISTORIAL_CAUSA_BAJA: {
+          include: { CAUSA_BAJA: true },
+          orderBy: { FECHA_DESDE_CAUSA_BAJA: 'asc' as const },
         },
         OTORGAMIENTO_RENOVACION_PROVISORIAS: {
           orderBy: { ID_OTORGAMIENTO_RENOVACION_PROVISORIAS: 'asc' as const },
@@ -405,7 +405,8 @@ export async function getLastRecord(): Promise<JubilacionRecord | null> {
     // Intentar obtener el último JUBILA activo
     const lastJubila = await prisma.jUBILA.findFirst({
       where: { BIT_BORRADO: false },
-      orderBy: { FECHA_INICIO_CREACION_JUBILA: 'desc' },
+      // Último expediente MODIFICADO (no el creado más recientemente)
+      orderBy: [{ FECHA_ULTIMA_MODIFICACION: 'desc' }, { FECHA_INICIO_CREACION_JUBILA: 'desc' }],
       include: {
         DATOS_PERSONALES_AGENTE_JUBILA: {
           include: {
@@ -415,9 +416,9 @@ export async function getLastRecord(): Promise<JubilacionRecord | null> {
             },
           },
         },
-        HISTORIAL_BENEFICIO: {
-          include: { BENEFICIO: true },
-          orderBy: { FECHA_INICIO_BENEFICIO: 'asc' },
+        HISTORIAL_CAUSA_BAJA: {
+          include: { CAUSA_BAJA: true },
+          orderBy: { FECHA_DESDE_CAUSA_BAJA: 'asc' },
         },
         OTORGAMIENTO_RENOVACION_PROVISORIAS: {
           orderBy: { ID_OTORGAMIENTO_RENOVACION_PROVISORIAS: 'asc' },
@@ -477,9 +478,9 @@ export async function getJubilaList(take = 50): Promise<JubilacionRecord[]> {
             },
           },
         },
-        HISTORIAL_BENEFICIO: {
-          include: { BENEFICIO: true },
-          orderBy: { FECHA_INICIO_BENEFICIO: 'asc' },
+        HISTORIAL_CAUSA_BAJA: {
+          include: { CAUSA_BAJA: true },
+          orderBy: { FECHA_DESDE_CAUSA_BAJA: 'asc' },
         },
         OTORGAMIENTO_RENOVACION_PROVISORIAS: {
           orderBy: { ID_OTORGAMIENTO_RENOVACION_PROVISORIAS: 'asc' },
@@ -549,34 +550,34 @@ export async function updateJubila(
       }
     }
 
-    // Actualizar beneficio en historial si cambió o si no existía
-    if (data.beneficio) {
-      const beneficioId = Number(data.beneficio)
-      const ultimoHistorial = await prisma.hISTORIAL_BENEFICIO.findFirst({
-        where: { ID_JUBILA: jubilaId, FECHA_FIN_BENEFICIO: null },
-        orderBy: [{ FECHA_INICIO_BENEFICIO: 'desc' }, { ID_HISTORIAL_BENEFICIO: 'desc' }],
+    // Actualizar causa de baja en historial si cambió o si no existía
+    if (data.causaBaja) {
+      const causaBajaId = Number(data.causaBaja)
+      const ultimoHistorial = await prisma.hISTORIAL_CAUSA_BAJA.findFirst({
+        where: { ID_JUBILA: jubilaId, FECHA_FIN_CAUSA_BAJA: null },
+        orderBy: [{ FECHA_DESDE_CAUSA_BAJA: 'desc' }, { ID_HISTORIAL_CAUSA_BAJA: 'desc' }],
       })
       if (!ultimoHistorial) {
-        await prisma.hISTORIAL_BENEFICIO.create({
+        await prisma.hISTORIAL_CAUSA_BAJA.create({
           data: {
             ID_JUBILA: jubilaId,
-            ID_BENEFICIO: beneficioId,
-            FECHA_INICIO_BENEFICIO: new Date(),
+            ID_CAUSA_BAJA: causaBajaId,
+            FECHA_DESDE_CAUSA_BAJA: new Date(),
             USUARIO_ULTIMA_MODIFICACION: usuarioId,
           },
         })
-      } else if (ultimoHistorial.ID_BENEFICIO !== beneficioId) {
-        // Cierra el beneficio anterior
-        await prisma.hISTORIAL_BENEFICIO.update({
-          where: { ID_HISTORIAL_BENEFICIO: ultimoHistorial.ID_HISTORIAL_BENEFICIO },
-          data: { FECHA_FIN_BENEFICIO: new Date() },
+      } else if (ultimoHistorial.ID_CAUSA_BAJA !== causaBajaId) {
+        // Cierra la causa de baja anterior
+        await prisma.hISTORIAL_CAUSA_BAJA.update({
+          where: { ID_HISTORIAL_CAUSA_BAJA: ultimoHistorial.ID_HISTORIAL_CAUSA_BAJA },
+          data: { FECHA_FIN_CAUSA_BAJA: new Date() },
         })
-        // Crea el nuevo beneficio
-        await prisma.hISTORIAL_BENEFICIO.create({
+        // Crea la nueva causa de baja
+        await prisma.hISTORIAL_CAUSA_BAJA.create({
           data: {
             ID_JUBILA: jubilaId,
-            ID_BENEFICIO: beneficioId,
-            FECHA_INICIO_BENEFICIO: new Date(),
+            ID_CAUSA_BAJA: causaBajaId,
+            FECHA_DESDE_CAUSA_BAJA: new Date(),
             USUARIO_ULTIMA_MODIFICACION: usuarioId,
           },
         })
@@ -763,13 +764,13 @@ export async function createJubila(
       },
     })
 
-    // Agregar beneficio inicial si fue especificado
-    if (data.beneficio) {
-      await prisma.hISTORIAL_BENEFICIO.create({
+    // Agregar causa de baja inicial si fue especificada
+    if (data.causaBaja) {
+      await prisma.hISTORIAL_CAUSA_BAJA.create({
         data: {
           ID_JUBILA: jubila.ID_JUBILA,
-          ID_BENEFICIO: Number(data.beneficio),
-          FECHA_INICIO_BENEFICIO: new Date(),
+          ID_CAUSA_BAJA: Number(data.causaBaja),
+          FECHA_DESDE_CAUSA_BAJA: new Date(),
           USUARIO_ULTIMA_MODIFICACION: usuarioId,
         },
       })

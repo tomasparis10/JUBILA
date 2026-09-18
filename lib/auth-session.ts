@@ -56,6 +56,7 @@ export interface AuthenticatedSession {
   sessionId: number
   userId: number
   username: string
+  role: string
   mustChangePassword: boolean
 }
 
@@ -86,6 +87,7 @@ export async function getAuthenticatedSession(): Promise<AuthenticatedSession | 
     sessionId: session.ID_SESION,
     userId: session.ID_USUARIO,
     username: session.USUARIO.NOMBRE_USUARIO,
+    role: session.USUARIO.ROL,
     mustChangePassword: session.USUARIO.DEBE_CAMBIAR_CONTRASENA,
   }
 }

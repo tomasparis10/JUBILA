@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useCallback, useState } from 'react'
-import { LayoutDashboard, Settings, FileText, ChevronRight, CalendarClock } from 'lucide-react'
+import { LayoutDashboard, Settings, FileText, ChevronRight, CalendarClock, BellRing, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getCantidadProxJubilar } from '@/app/actions/agentes'
+import { getCantidadAlertasActivas } from '@/app/actions/alertas'
 
 type OpMode = 'agregar-agente' | 'actualizacion-masiva'
 
-type NavSection = 'inicio' | 'operaciones' | 'informes' | 'prox-jubilar'
+type NavSection = 'inicio' | 'operaciones' | 'informes' | 'prox-jubilar' | 'alertas' | 'usuarios'
 
 interface SidebarProps {
   activeSection: NavSection
@@ -16,6 +17,7 @@ interface SidebarProps {
   onToggleOp: () => void
   activeOp: OpMode | null
   onOpSelect: (op: OpMode) => void
+  role: string
 }
 
 const opSubItems: { key: OpMode; label: string }[] = [
@@ -30,19 +32,33 @@ export default function Sidebar({
   onToggleOp,
   activeOp,
   onOpSelect,
+  role,
 }: SidebarProps) {
   const [proxJubilarCount, setProxJubilarCount] = useState<number | null>(null)
+  const [alertasCount, setAlertasCount] = useState<number | null>(null)
+
+  const isAdmin = role === 'ADMIN'
 
   const refreshCount = useCallback(async () => {
     setProxJubilarCount(await getCantidadProxJubilar())
   }, [])
 
+  const refreshAlertas = useCallback(async () => {
+    setAlertasCount(await getCantidadAlertasActivas())
+  }, [])
+
   useEffect(() => {
     void refreshCount()
-    const handleBulkSyncCompleted = () => { void refreshCount() }
+    void refreshAlertas()
+    const handleBulkSyncCompleted = () => {
+      void refreshCount()
+      void refreshAlertas()
+    }
     window.addEventListener('bulk-sync-completed', handleBulkSyncCompleted)
     return () => window.removeEventListener('bulk-sync-completed', handleBulkSyncCompleted)
-  }, [refreshCount])
+  }, [refreshCount, refreshAlertas])
+
+  const subItemsVisibles = opSubItems.filter((item) => isAdmin || item.key !== 'actualizacion-masiva')
 
   return (
     <aside className="flex flex-col w-56 min-h-screen bg-[#172554] text-slate-200 flex-shrink-0">
@@ -100,7 +116,7 @@ export default function Sidebar({
 
           {expandedOp && (
             <div className="flex flex-col gap-0.5 mt-1 ml-4 pl-3 border-l border-[#1e3a8a]">
-              {opSubItems.map((item) => (
+              {subItemsVisibles.map((item) => (
                 <button
                   key={item.key}
                   onClick={() => onOpSelect(item.key)}
@@ -138,6 +154,25 @@ export default function Sidebar({
           )}
         </button>
 
+        {/* ALERTAS */}
+        <button
+          onClick={() => onSectionChange('alertas')}
+          className={cn(
+            'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold tracking-wide transition-colors w-full text-left',
+            activeSection === 'alertas'
+              ? 'bg-[#1d4ed8] text-white'
+              : 'text-blue-200 hover:bg-[#1e3a8a] hover:text-white'
+          )}
+        >
+          <BellRing className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1">ALERTAS</span>
+          {alertasCount !== null && alertasCount > 0 && (
+            <span className="flex items-center justify-center min-w-[1.35rem] h-6 px-1 rounded-full bg-red-600 text-white text-[11px] font-black flex-shrink-0 shadow-sm">
+              {alertasCount > 99 ? '99+' : alertasCount}
+            </span>
+          )}
+        </button>
+
         {/* INFORMES */}
         <button
           onClick={() => onSectionChange('informes')}
@@ -151,6 +186,22 @@ export default function Sidebar({
           <FileText className="w-4 h-4 flex-shrink-0" />
           <span>INFORMES</span>
         </button>
+
+        {/* GESTIÓN DE USUARIOS (solo ADMIN) */}
+        {isAdmin && (
+          <button
+            onClick={() => onSectionChange('usuarios')}
+            className={cn(
+              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold tracking-wide transition-colors w-full text-left',
+              activeSection === 'usuarios'
+                ? 'bg-[#1d4ed8] text-white'
+                : 'text-blue-200 hover:bg-[#1e3a8a] hover:text-white'
+            )}
+          >
+            <Users className="w-4 h-4 flex-shrink-0" />
+            <span>GESTIÓN DE USUARIOS</span>
+          </button>
+        )}
       </nav>
 
       {/* Spacer */}

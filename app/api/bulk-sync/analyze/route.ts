@@ -38,8 +38,12 @@ export const runtime = 'nodejs'
 export const maxDuration = 60
 
 export async function POST(request: NextRequest): Promise<NextResponse<AnalyzeApiResponse>> {
-  if (!await getAuthenticatedSession()) {
+  const session = await getAuthenticatedSession()
+  if (!session) {
     return NextResponse.json({ ok: false, error: 'Sesión inválida o vencida.' }, { status: 401 })
+  }
+  if (session.role !== 'ADMIN') {
+    return NextResponse.json({ ok: false, error: 'No autorizado. La carga masiva requiere rol ADMIN.' }, { status: 403 })
   }
 
   try {

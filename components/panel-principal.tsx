@@ -7,8 +7,8 @@ import {
   Loader2, AlertCircle, AlertTriangle, MessageSquare,
 } from 'lucide-react'
 import {
-  BENEFICIO_OPTIONS,
-  BOTONES_POR_BENEFICIO,
+  CAUSA_BAJA_OPTIONS,
+  BOTONES_POR_CAUSA_BAJA,
   type JubilacionRecord,
   type BtnExtra,
   type TrazabilidadEntry,
@@ -83,9 +83,9 @@ function getRecordDiffs(initial: JubilacionRecord | null, current: JubilacionRec
   }
 
   // Laboral
-  if (initial.beneficio !== current.beneficio) {
-    const oldLabel = BENEFICIO_OPTIONS.find((b) => b.value === initial.beneficio)?.label ?? initial.beneficio
-    const newLabel = BENEFICIO_OPTIONS.find((b) => b.value === current.beneficio)?.label ?? current.beneficio
+  if (initial.causaBaja !== current.causaBaja) {
+    const oldLabel = CAUSA_BAJA_OPTIONS.find((b) => b.value === initial.causaBaja)?.label ?? initial.causaBaja
+    const newLabel = CAUSA_BAJA_OPTIONS.find((b) => b.value === current.causaBaja)?.label ?? current.causaBaja
     diffs.push({ section: 'INFORMACIÓN LABORAL', label: 'Causa de Baja', oldVal: oldLabel, newVal: newLabel })
   }
   check('INFORMACIÓN LABORAL', 'Número de Trámite', 'nroTramite')
@@ -303,7 +303,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       noCumpleAportesEdadAvanzada: false,
       estadoActivo: true,
       trazabilidad: [],
-      beneficio: '1', nroTramite: '',
+      causaBaja: '1', nroTramite: '',
       fBaja: '', nroExpMunRenuncia: '', jNroExpCaja: '', nroResRenCaja: '',
       nroExpCajDeneg: '', fInicExpMunPav: '', nroExpedienteMun: '',
       fInfPrevCaja: '', fecha: '', anios: '', meses: '', dias: '', edadReq: '',
@@ -468,7 +468,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
   const isActivo = selected ? selected.estadoActivo : false
   // Otorgamiento y Renovaciones siempre visible cuando hay registro seleccionado
   const showRenovaciones = true
-  const extraBtns: BtnExtra[] = selected ? (BOTONES_POR_BENEFICIO[selected.beneficio] ?? []) : []
+  const extraBtns: BtnExtra[] = selected ? (BOTONES_POR_CAUSA_BAJA[selected.causaBaja] ?? []) : []
 
   // ── Generación de PDFs PAV ───────────────────────────────────────────────
   const [loadingPAV, setLoadingPAV] = useState<string | null>(null)
@@ -575,7 +575,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
         jNroExpCaja: selected.jNroExpCaja,
         fechaDesdeProv: ultimaRenovacion?.fechaDesdeExp ?? '',
         fechaHastaProv: ultimaRenovacion?.fechaHastaExp ?? '',
-        causaBaja: BENEFICIO_OPTIONS.find((beneficio) => beneficio.value === selected.beneficio)?.label ?? '',
+        causaBaja: CAUSA_BAJA_OPTIONS.find((cb) => cb.value === selected.causaBaja)?.label ?? '',
       }
       let doc: React.ReactElement
       let filename = ''
@@ -658,7 +658,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
               {isActivo ? 'ACTIVO' : 'INACTIVO'}
             </span>
             <span className="ml-auto text-xs text-white/80 flex-shrink-0 truncate max-w-xs">
-              {BENEFICIO_OPTIONS.find((b) => b.value === selected.beneficio)?.label ?? '—'}
+              {CAUSA_BAJA_OPTIONS.find((b) => b.value === selected.causaBaja)?.label ?? '—'}
             </span>
           </div>
         )}
@@ -706,7 +706,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                         <div className="flex items-center gap-2 mb-0.5">
                           <span className="text-xs font-mono text-slate-400">{entry.fecha}</span>
                         </div>
-                        <p className="text-sm font-semibold text-[#1e3a8a]">{entry.beneficio}</p>
+                        <p className="text-sm font-semibold text-[#1e3a8a]">{entry.causaBaja}</p>
                         <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{entry.observacion}</p>
                       </div>
                     </div>
@@ -1247,12 +1247,12 @@ if (!selected.programa?.trim()) missing.push('• Programa')
               {/* ── Card 2: Información Laboral ──────────────────────────────── */}
               <SectionCard title="Información Laboral">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  {/* Beneficio + Nro Tramite en primera fila */}
+                  {/* Causa de Baja + Nro Tramite en primera fila */}
                   <SelectField
                     label="Causa de Baja"
-                    value={selected.beneficio}
-                    onChange={(v) => update('beneficio', v)}
-                    options={BENEFICIO_OPTIONS}
+                    value={selected.causaBaja}
+                    onChange={(v) => update('causaBaja', v)}
+                    options={CAUSA_BAJA_OPTIONS}
                     disabled={roJubila}
                     className="col-span-2"
                   />
@@ -1302,7 +1302,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                   />
                 </div>
 
-                {/* Botones dinámicos según beneficio */}
+                {/* Botones dinámicos según causa de baja */}
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
                   {/* Botón unificado Cargar/Ver PDF/Imagen */}
                   <button
@@ -1313,7 +1313,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     <Upload className="w-3.5 h-3.5" />
                     Cargar/Ver PDF/Imagen
                   </button>
-                  {/* Variables según beneficio */}
+                  {/* Variables según causa de baja */}
                   {extraBtns.map((btn) => (
                     <button
                       key={btn.label}

@@ -10,7 +10,7 @@ import { getAgentesFaltaUnAno } from '@/app/actions/agentes'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
-interface BeneficioItem {
+interface CausaBajaItem {
   label: string; count: number; pct: number; color: string
 }
 interface MonthItem {
@@ -28,7 +28,7 @@ interface InformeCard {
 
 // ── Datos ─────────────────────────────────────────────────────────────────────
 
-const CAUSA_BAJA_DIST: BeneficioItem[] = [
+const CAUSA_BAJA_DIST: CausaBajaItem[] = [
   { label: 'Jubilación',       count: 356, pct: 42, color: '#1d4ed8' },
   { label: 'Renuncia',         count: 203, pct: 24, color: '#7c3aed' },
   { label: 'Invalidez',        count: 152, pct: 18, color: '#059669' },

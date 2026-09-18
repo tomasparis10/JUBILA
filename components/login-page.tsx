@@ -5,7 +5,7 @@ import { User, Lock, LogIn, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { loginUsuario } from '@/app/actions/auth'
 
 interface LoginPageProps {
-  onLogin: (username: string, userId: number, mustChange?: boolean) => void
+  onLogin: (username: string, userId: number, mustChange?: boolean, role?: string) => void
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
@@ -31,7 +31,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         }),
       ])
       if (result.ok && result.username && result.userId != null) {
-        onLogin(result.username, result.userId, Boolean(result.mustChangePassword))
+        onLogin(result.username, result.userId, Boolean(result.mustChangePassword), result.role)
       } else {
         setError(result.error ?? 'Usuario o contraseña incorrectos.')
       }

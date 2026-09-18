@@ -18,6 +18,7 @@ type OpMode = 'agregar-agente' | 'actualizacion-masiva'
 interface OperacionesPanelProps {
   activeOp: OpMode | null
   onChangeOp: (op: OpMode) => void
+  role?: string
 }
 
 function AntiguedadField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
@@ -1256,7 +1257,9 @@ function ActualizacionMasiva() {
 }
 
 // ── Main OperacionesPanel ─────────────────────────────────────────────────────
-export default function OperacionesPanel({ activeOp, onChangeOp }: OperacionesPanelProps) {
+export default function OperacionesPanel({ activeOp, onChangeOp, role }: OperacionesPanelProps) {
+  const esAdmin = role === 'ADMIN'
+  const opEfectivo = esAdmin ? activeOp : activeOp === 'actualizacion-masiva' ? 'agregar-agente' : activeOp
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-xl font-bold text-[#1e3a8a] mb-1">Operaciones</h1>
@@ -1267,7 +1270,7 @@ export default function OperacionesPanel({ activeOp, onChangeOp }: OperacionesPa
         <button
           onClick={() => onChangeOp('agregar-agente')}
           className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 transition -mb-px ${
-            activeOp === 'agregar-agente'
+            opEfectivo === 'agregar-agente'
               ? 'bg-white border-slate-200 text-[#1e3a8a] shadow-sm'
               : 'bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-200'
           }`}
@@ -1275,23 +1278,25 @@ export default function OperacionesPanel({ activeOp, onChangeOp }: OperacionesPa
           <UserCog className="w-4 h-4" />
           Gestión de Agentes
         </button>
-        <button
-          onClick={() => onChangeOp('actualizacion-masiva')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 transition -mb-px ${
-            activeOp === 'actualizacion-masiva'
-              ? 'bg-white border-slate-200 text-[#1e3a8a] shadow-sm'
-              : 'bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-200'
-          }`}
-        >
-          <RefreshCw className="w-4 h-4" />
-          Actualización Masiva
-        </button>
+        {esAdmin && (
+          <button
+            onClick={() => onChangeOp('actualizacion-masiva')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 transition -mb-px ${
+              opEfectivo === 'actualizacion-masiva'
+                ? 'bg-white border-slate-200 text-[#1e3a8a] shadow-sm'
+                : 'bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <RefreshCw className="w-4 h-4" />
+            Actualización Masiva
+          </button>
+        )}
       </div>
 
       {/* Content */}
-      {activeOp === 'agregar-agente' && <GestionAgentes />}
-      {activeOp === 'actualizacion-masiva' && <ActualizacionMasiva />}
-      {!activeOp && (
+      {opEfectivo === 'agregar-agente' && <GestionAgentes />}
+      {opEfectivo === 'actualizacion-masiva' && <ActualizacionMasiva />}
+      {!opEfectivo && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
           <Search className="w-10 h-10 opacity-30" />
           <p className="text-sm">Seleccione una operación de las pestañas de arriba.</p>

@@ -19,11 +19,11 @@ model ARCHIVO_JUBILACION {
   USUARIO        USUARIO  @relation(fields: [USUARIO_SUBIDA], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_ARCHIVO_USUARIO")
 }
 
-model BENEFICIO {
-  ID_BENEFICIO        Int                   @id(map: "PK__BENEFICI__359D6A0B0E5AB44B") @default(autoincrement())
-  NOMBRE              String                @db.VarChar(255)
-  DESCRIPCION         String?               @db.VarChar(500)
-  HISTORIAL_BENEFICIO HISTORIAL_BENEFICIO[]
+model CAUSA_BAJA {
+  ID_CAUSA_BAJA         Int                        @id(map: "PK__BENEFICI__359D6A0B0E5AB44B") @default(autoincrement())
+  NOMBRE_CAUSA_BAJA     String                     @db.VarChar(255)
+  DESCRIPCION           String?                    @db.VarChar(500)
+  HISTORIAL_CAUSA_BAJA  HISTORIAL_CAUSA_BAJA[]
 }
 
 model DATOS_PERSONALES_AGENTE_JUBILA {
@@ -58,16 +58,16 @@ model DATOS_PERSONALES_AGENTE_JUBILA {
   CARRERA_ADMINISTRATIVA              CARRERA_ADMINISTRATIVA[]
 }
 
-model HISTORIAL_BENEFICIO {
-  ID_HISTORIAL_BENEFICIO      Int       @id(map: "PK__HISTORIA__17D1D2A87070E491") @default(autoincrement())
-  ID_JUBILA                   Int
-  ID_BENEFICIO                Int
-  FECHA_INICIO_BENEFICIO      DateTime  @db.Date
-  FECHA_FIN_BENEFICIO         DateTime? @db.Date
-  USUARIO_ULTIMA_MODIFICACION Int       @default(1, map: "DF__HISTORIAL__USUAR__1F98B2C1")
-  BENEFICIO                   BENEFICIO @relation(fields: [ID_BENEFICIO], references: [ID_BENEFICIO], onUpdate: NoAction, map: "fk_HISTORIAL_BENEFICIO_TIPO")
-  JUBILA                      JUBILA    @relation(fields: [ID_JUBILA], references: [ID_JUBILA], onDelete: Cascade, onUpdate: NoAction, map: "fk_HISTORIAL_JUBILA")
-  USUARIO                     USUARIO   @relation(fields: [USUARIO_ULTIMA_MODIFICACION], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_HISTORIAL_USUARIO")
+model HISTORIAL_CAUSA_BAJA {
+  ID_HISTORIAL_CAUSA_BAJA        Int        @id(map: "PK__HISTORIA__17D1D2A87070E491") @default(autoincrement())
+  ID_JUBILA                      Int
+  ID_CAUSA_BAJA                  Int
+  FECHA_DESDE_CAUSA_BAJA         DateTime   @db.Date
+  FECHA_FIN_CAUSA_BAJA           DateTime?  @db.Date
+  USUARIO_ULTIMA_MODIFICACION    Int        @default(1, map: "DF__HISTORIAL__USUAR__1F98B2C1")
+  CAUSA_BAJA                     CAUSA_BAJA @relation(fields: [ID_CAUSA_BAJA], references: [ID_CAUSA_BAJA], onUpdate: NoAction, map: "fk_HISTORIAL_CAUSA_BAJA_CAUSA")
+  JUBILA                         JUBILA     @relation(fields: [ID_JUBILA], references: [ID_JUBILA], onDelete: Cascade, onUpdate: NoAction, map: "fk_HISTORIAL_JUBILA")
+  USUARIO                        USUARIO    @relation(fields: [USUARIO_ULTIMA_MODIFICACION], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_HISTORIAL_USUARIO")
 }
 
 model JUBILA {
@@ -94,11 +94,11 @@ model JUBILA {
   USUARIO_MODIFICACION                                     Int?
   BIT_BORRADO                                              Boolean                               @default(false, map: "DF__JUBILA__BIT_BORR__123EB7A3")
   ARCHIVO_JUBILACION                                       ARCHIVO_JUBILACION[]
-  HISTORIAL_BENEFICIO                                      HISTORIAL_BENEFICIO[]
   DATOS_PERSONALES_AGENTE_JUBILA                           DATOS_PERSONALES_AGENTE_JUBILA        @relation(fields: [ID_AGENTE], references: [ID_DATOS_PERSONALES_AGENTE_JUBILA], onUpdate: NoAction, map: "fk_JUBILA_AGENTE")
   USUARIO_JUBILA_USUARIO_CREACIONToUSUARIO                 USUARIO                               @relation("JUBILA_USUARIO_CREACIONToUSUARIO", fields: [USUARIO_CREACION], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_JUBILA_USUARIO_CREACION")
   USUARIO_JUBILA_USUARIO_MODIFICACIONToUSUARIO             USUARIO?                              @relation("JUBILA_USUARIO_MODIFICACIONToUSUARIO", fields: [USUARIO_MODIFICACION], references: [ID_USUARIO], onDelete: NoAction, onUpdate: NoAction, map: "fk_JUBILA_USUARIO_MODIFICACION")
-  OTORGAMIENTO_RENOVACION_PROVISORIAS                      OTORGAMIENTO_RENOVACION_PROVISORIAS[]
+OTORGAMIENTO_RENOVACION_PROVISORIAS            OTORGAMIENTO_RENOVACION_PROVISORIAS[]
+  HISTORIAL_CAUSA_BAJA                           HISTORIAL_CAUSA_BAJA[]
 }
 
 model OTORGAMIENTO_RENOVACION_PROVISORIAS {
@@ -145,10 +145,12 @@ model USUARIO {
   NOMBRE_USUARIO                              String                @unique(map: "UQ__USUARIO__1E139900200EE1AC") @db.VarChar(255)
   CONTRASENA_USUARIO                          String                @db.VarChar(255)
   DEBE_CAMBIAR_CONTRASENA                     Boolean               @default(true)
+  // Rol único por usuario: 'ADMIN' (todo) o 'JUBILA' (sin carga masiva)
+  ROL                                         String                @default("JUBILA") @db.VarChar(20)
   ARCHIVO_JUBILACION                          ARCHIVO_JUBILACION[]
   DATOS_PERSONALES_AGENTE_JUBILA              DATOS_PERSONALES_AGENTE_JUBILA[]
   DATOS_PERSONALES_AGENTE_JUBILA_DATOS_PERSONALES_AGENTE_JUBILA_USUARIO_ULTIMA_MODIFICACIONToUSUARIO DATOS_PERSONALES_AGENTE_JUBILA[] @relation("DATOS_PERSONALES_AGENTE_JUBILA_USUARIO_ULTIMA_MODIFICACIONToUSUARIO")
-  HISTORIAL_BENEFICIO                         HISTORIAL_BENEFICIO[]
+  HISTORIAL_CAUSA_BAJA                         HISTORIAL_CAUSA_BAJA[]
   JUBILA_JUBILA_USUARIO_CREACIONToUSUARIO     JUBILA[]              @relation("JUBILA_USUARIO_CREACIONToUSUARIO")
   JUBILA_JUBILA_USUARIO_MODIFICACIONToUSUARIO JUBILA[]              @relation("JUBILA_USUARIO_MODIFICACIONToUSUARIO")
   SESION                                      SESION[]

@@ -9,7 +9,7 @@ export interface RenovProvisoria {
 
 export interface TrazabilidadEntry {
   fecha: string
-  beneficio: string
+  causaBaja: string
   observacion: string
 }
 
@@ -33,7 +33,7 @@ export interface JubilacionRecord {
   edadActual: string
   fechaEstimadaJubilacionOrdinaria: string
   noCumpleAportesEdadAvanzada: boolean
-  beneficio: string
+  causaBaja: string
   nroTramite: string
   fBaja: string
   nroExpMunRenuncia: string
@@ -66,7 +66,7 @@ export interface JubilacionRecord {
 }
 
 
-export const BENEFICIO_OPTIONS = [
+export const CAUSA_BAJA_OPTIONS = [
   { value: '1', label: 'Jubilación Ordinaria' },
   { value: '2', label: 'Jubilación por Invalidez Definitiva' },
   { value: '3', label: 'Jubilación por Invalidez Provisoria' },
@@ -87,14 +87,14 @@ export const BENEFICIO_OPTIONS = [
   { value: '18', label: 'Jubilación Anses' },
 ]
 
-// Beneficio que muestra el bloque de Renovaciones Provisorias
-export const BENEFICIO_INVALIDEZ_PROVISORIA = '3'
+// Causa de baja que muestra el bloque de Renovaciones Provisorias
+export const CAUSA_BAJA_INVALIDEZ_PROVISORIA = '3'
 
-// Mapeo de beneficio → botones extra (además de los 2 fijos de PDF)
+// Mapeo de causa de baja → botones extra (además de los 2 fijos de PDF)
 // Cada entrada es: { label, icon: 'printer'|'file-check'|'archive'|'file-text'|'check-square'|'send' }
 export type BtnExtra = { label: string; icon: string; action?: string }
 
-export const BOTONES_POR_BENEFICIO: Record<string, BtnExtra[]> = {
+export const BOTONES_POR_CAUSA_BAJA: Record<string, BtnExtra[]> = {
   '1': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
   '2': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
   '3': [{ label: 'Renuncia Provisoria', icon: 'printer', action: 'renuncia-provisoria' }, { label: 'Pase Interno', icon: 'send', action: 'pase-interno' }],
@@ -121,5 +121,5 @@ export const BOTONES_POR_BENEFICIO: Record<string, BtnExtra[]> = {
   '18': [{ label: 'Renuncia', icon: 'printer', action: 'renuncia' }, { label: 'Pase Repartición', icon: 'send', action: 'pase-reparticion' }],
 }
 
-// Beneficios "activos" (agente activo = verde en header)
-export const BENEFICIOS_ACTIVOS = new Set(['1', '2', '3', '4', '5', '6', '7', '8', '9', '15', '16', '18'])
+// Causas de baja "activas" (agente activo = verde en header)
+export const CAUSAS_BAJA_ACTIVAS = new Set(['1', '2', '3', '4', '5', '6', '7', '8', '9', '15', '16', '18'])

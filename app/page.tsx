@@ -8,10 +8,12 @@ import PanelPrincipal from '@/components/panel-principal'
 import InformesAnaliticas from '@/components/informes-analiticas'
 import OperacionesPanel from '@/components/operaciones-panel'
 import ProxJubilacionesPanel from '@/components/prox-jubilaciones-widget'
+import AlertasPanel from '@/components/alertas-panel'
+import GestionUsuarios from '@/components/gestion-usuarios'
 import { getCurrentSession, logoutUsuario } from '@/app/actions/auth'
 import CambiarContrasena from '@/components/cambiar-contrasena'
 
-type NavSection = 'inicio' | 'operaciones' | 'informes' | 'prox-jubilar'
+type NavSection = 'inicio' | 'operaciones' | 'informes' | 'prox-jubilar' | 'alertas' | 'usuarios'
 type OpMode = 'agregar-agente' | 'actualizacion-masiva'
 
 export default function App() {
@@ -19,6 +21,7 @@ export default function App() {
   const [loggedIn, setLoggedIn] = useState(false)
   const [username, setUsername] = useState('')
   const [userId, setUserId] = useState<number>(1)
+  const [role, setRole] = useState<string>('JUBILA')
   const [activeSection, setActiveSection] = useState<NavSection>('inicio')
   const [expandedOp, setExpandedOp] = useState(false)
   const [activeOp, setActiveOp] = useState<OpMode | null>(null)
@@ -26,9 +29,10 @@ export default function App() {
   const [mustChangePassword, setMustChangePassword] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
 
-  const handleLogin = (name: string, id: number, mustChange = false) => {
+  const handleLogin = (name: string, id: number, mustChange = false, userRole: string = 'JUBILA') => {
     setUsername(name)
     setUserId(id)
+    setRole(userRole)
     setLoggedIn(true)
     setMustChangePassword(mustChange)
   }
@@ -40,6 +44,7 @@ export default function App() {
       if (session.ok && session.username && session.userId != null) {
         setUsername(session.username)
         setUserId(session.userId)
+        setRole(session.role ?? 'JUBILA')
         setLoggedIn(true)
         setMustChangePassword(Boolean(session.mustChangePassword))
       } else {
@@ -60,6 +65,7 @@ export default function App() {
       setLoggedIn(false)
       setUsername('')
       setUserId(1)
+      setRole('JUBILA')
       setActiveSection('inicio')
       setExpandedOp(false)
       setActiveOp(null)
@@ -68,6 +74,7 @@ export default function App() {
   }
 
   const handleOpSelect = (op: OpMode) => {
+    if (op === 'actualizacion-masiva' && role !== 'ADMIN') return
     setActiveSection('operaciones')
     setActiveOp(op)
     setExpandedOp(true)
@@ -102,6 +109,7 @@ export default function App() {
         onToggleOp={() => setExpandedOp((v) => !v)}
         activeOp={activeOp}
         onOpSelect={handleOpSelect}
+        role={role}
       />
 
       {/* Right side: topbar + main */}
@@ -119,7 +127,7 @@ export default function App() {
 
         {activeSection === 'operaciones' && (
           <main className="flex-1 overflow-y-auto">
-            <OperacionesPanel activeOp={activeOp} onChangeOp={handleOpSelect} />
+            <OperacionesPanel activeOp={activeOp} onChangeOp={handleOpSelect} role={role} />
           </main>
         )}
 
@@ -132,6 +140,18 @@ export default function App() {
         {activeSection === 'prox-jubilar' && (
           <main className="flex-1 overflow-y-auto p-6">
             <ProxJubilacionesPanel onAgenteClick={handleAgenteSelect} />
+          </main>
+        )}
+
+        {activeSection === 'alertas' && (
+          <main className="flex-1 overflow-y-auto">
+            <AlertasPanel />
+          </main>
+        )}
+
+        {activeSection === 'usuarios' && role === 'ADMIN' && (
+          <main className="flex-1 overflow-y-auto">
+            <GestionUsuarios />
           </main>
         )}
       </div>

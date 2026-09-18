@@ -1,0 +1,14 @@
+-- Aplica manualmente contra la base (no usar prisma migrate deploy por P3005).
+-- Renombra el concepto "BENEFICIO" → "CAUSA_BAJA" en tablas, columnas y FK,
+-- y acerca el dominio a la terminología "causa de baja" del expediente JUBILA.
+
+EXEC sp_rename N'dbo.BENEFICIO', N'CAUSA_BAJA';
+EXEC sp_rename N'dbo.CAUSA_BAJA.ID_BENEFICIO', N'ID_CAUSA_BAJA', 'COLUMN';
+EXEC sp_rename N'dbo.CAUSA_BAJA.NOMBRE', N'NOMBRE_CAUSA_BAJA', 'COLUMN';
+
+EXEC sp_rename N'dbo.HISTORIAL_BENEFICIO', N'HISTORIAL_CAUSA_BAJA';
+EXEC sp_rename N'dbo.HISTORIAL_CAUSA_BAJA.ID_HISTORIAL_BENEFICIO', N'ID_HISTORIAL_CAUSA_BAJA', 'COLUMN';
+EXEC sp_rename N'dbo.HISTORIAL_CAUSA_BAJA.ID_BENEFICIO', N'ID_CAUSA_BAJA', 'COLUMN';
+EXEC sp_rename N'dbo.HISTORIAL_CAUSA_BAJA.FECHA_INICIO_BENEFICIO', N'FECHA_DESDE_CAUSA_BAJA', 'COLUMN';
+EXEC sp_rename N'dbo.HISTORIAL_CAUSA_BAJA.FECHA_FIN_BENEFICIO', N'FECHA_FIN_CAUSA_BAJA', 'COLUMN';
+EXEC sp_rename N'dbo.fk_HISTORIAL_BENEFICIO_TIPO', N'fk_HISTORIAL_CAUSA_BAJA_CAUSA', 'OBJECT';
