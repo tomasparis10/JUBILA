@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
     const archivo = await prisma.aRCHIVO_JUBILACION.findFirst({
       where: {
         ID_ARCHIVO: archivoId,
+        BIT_BORRADO: false,
         JUBILA: { is: { BIT_BORRADO: false } },
       },
       select: {

@@ -124,7 +124,7 @@ export function GestorArchivos({ jubilaId, disabled = false }: GestorArchivosPro
 
   // Eliminar archivo
   const handleDelete = async (id: number) => {
-    if (!confirm('¿Esta seguro de eliminar este archivo? Esta accion no se puede deshacer.')) return
+    if (!confirm('¿Está seguro de eliminar este archivo? El documento dejará de mostrarse en el sistema pero se conservará en la base de datos.')) return
     setDeletingId(id)
     try {
       const result = await eliminarArchivo(id)

@@ -8,15 +8,19 @@ datasource db {
 }
 
 model ARCHIVO_JUBILACION {
-  ID_ARCHIVO     Int      @id(map: "PK__ARCHIVO___E2F250292B898A87") @default(autoincrement())
-  ID_JUBILA      Int
-  NOMBRE_ARCHIVO String   @db.VarChar(255)
-  TIPO_ARCHIVO   String?  @db.VarChar(100)
-  DATOS_ARCHIVO  Bytes
-  FECHA_SUBIDA   DateTime
-  USUARIO_SUBIDA Int      @default(1, map: "DF__ARCHIVO_J__USUAR__17F790F9")
-  JUBILA         JUBILA   @relation(fields: [ID_JUBILA], references: [ID_JUBILA], onDelete: Cascade, onUpdate: NoAction, map: "fk_ARCHIVO_JUBILA")
-  USUARIO        USUARIO  @relation(fields: [USUARIO_SUBIDA], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_ARCHIVO_USUARIO")
+  ID_ARCHIVO          Int       @id(map: "PK__ARCHIVO___E2F250292B898A87") @default(autoincrement())
+  ID_JUBILA           Int
+  NOMBRE_ARCHIVO      String    @db.VarChar(255)
+  TIPO_ARCHIVO        String?   @db.VarChar(100)
+  DATOS_ARCHIVO       Bytes
+  FECHA_SUBIDA        DateTime
+  USUARIO_SUBIDA      Int       @default(1, map: "DF__ARCHIVO_J__USUAR__17F790F9")
+  FECHA_ELIMINACION   DateTime?
+  USUARIO_ELIMINACION Int?
+  BIT_BORRADO         Boolean   @default(false)
+  JUBILA              JUBILA    @relation(fields: [ID_JUBILA], references: [ID_JUBILA], onDelete: Cascade, onUpdate: NoAction, map: "fk_ARCHIVO_JUBILA")
+  USUARIO             USUARIO   @relation("ARCHIVO_JUBILACION_USUARIO_SUBIDA", fields: [USUARIO_SUBIDA], references: [ID_USUARIO], onUpdate: NoAction, map: "fk_ARCHIVO_USUARIO")
+  USUARIO_ELIMINA     USUARIO?  @relation("ARCHIVO_JUBILACION_USUARIO_ELIMINACION", fields: [USUARIO_ELIMINACION], references: [ID_USUARIO], onUpdate: NoAction)
 }
 
 model CAUSA_BAJA {
@@ -147,7 +151,8 @@ model USUARIO {
   DEBE_CAMBIAR_CONTRASENA                     Boolean               @default(true)
   // Rol único por usuario: 'ADMIN' (todo) o 'JUBILA' (sin carga masiva)
   ROL                                         String                @default("JUBILA") @db.VarChar(20)
-  ARCHIVO_JUBILACION                          ARCHIVO_JUBILACION[]
+  ARCHIVO_JUBILACION                          ARCHIVO_JUBILACION[]                 @relation("ARCHIVO_JUBILACION_USUARIO_SUBIDA")
+  ARCHIVO_JUBILACION_USUARIO_ELIMINACION     ARCHIVO_JUBILACION[]                 @relation("ARCHIVO_JUBILACION_USUARIO_ELIMINACION")
   DATOS_PERSONALES_AGENTE_JUBILA              DATOS_PERSONALES_AGENTE_JUBILA[]
   DATOS_PERSONALES_AGENTE_JUBILA_DATOS_PERSONALES_AGENTE_JUBILA_USUARIO_ULTIMA_MODIFICACIONToUSUARIO DATOS_PERSONALES_AGENTE_JUBILA[] @relation("DATOS_PERSONALES_AGENTE_JUBILA_USUARIO_ULTIMA_MODIFICACIONToUSUARIO")
   HISTORIAL_CAUSA_BAJA                         HISTORIAL_CAUSA_BAJA[]

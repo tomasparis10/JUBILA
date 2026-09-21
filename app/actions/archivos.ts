@@ -68,6 +68,7 @@ export async function listarArchivos(jubilaId: number): Promise<ArchivoMeta[]> {
       where: { ID_JUBILA: jubilaId, BIT_BORRADO: false },
       select: {
         ARCHIVO_JUBILACION: {
+          where: { BIT_BORRADO: false },
           select: {
             ID_ARCHIVO: true,
             NOMBRE_ARCHIVO: true,
@@ -171,24 +172,32 @@ export async function subirArchivos(
   }
 }
 
-/** Elimina un archivo perteneciente a un JUBILA activo. */
+/** Borrado logico: marca BIT_BORRADO, conservando el registro (y sus datos) en la base. */
 export async function eliminarArchivo(
   archivoId: number,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAuthenticatedSession()
+  const { userId: usuarioId } = await requireAuthenticatedSession()
   if (!esIdValido(archivoId)) return { ok: false, error: 'Solicitud de archivo inválida.' }
 
   try {
     const archivo = await prisma.aRCHIVO_JUBILACION.findFirst({
       where: {
         ID_ARCHIVO: archivoId,
+        BIT_BORRADO: false,
         JUBILA: { is: { BIT_BORRADO: false } },
       },
       select: { ID_ARCHIVO: true },
     })
     if (!archivo) return { ok: false, error: 'No se pudo eliminar el archivo.' }
 
-    await prisma.aRCHIVO_JUBILACION.delete({ where: { ID_ARCHIVO: archivo.ID_ARCHIVO } })
+    await prisma.aRCHIVO_JUBILACION.update({
+      where: { ID_ARCHIVO: archivo.ID_ARCHIVO },
+      data: {
+        BIT_BORRADO: true,
+        FECHA_ELIMINACION: new Date(),
+        USUARIO_ELIMINACION: usuarioId,
+      },
+    })
     revalidatePath('/')
     return { ok: true }
   } catch (error) {
