@@ -647,7 +647,7 @@ const RenunciaTemplate = ({ data, provisoria = false }: { data: PAVData; proviso
           {provisoria ? (
             <Text>
               para el período comprendido desde el <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.fechaDesdeProv || ''}</Text>{' '}
-              hasta el <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.fechaHastaProv || ''}</Text>, siendo esta última la fecha efectiva de baja.
+              hasta el <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.fechaHastaProv || ''}</Text>.
               Motiva la presente solicitud: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.causaBaja || ''}</Text>.
             </Text>
           ) : (

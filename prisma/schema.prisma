@@ -55,6 +55,7 @@ model DATOS_PERSONALES_AGENTE_JUBILA {
   USUARIO_CREACION                    Int?
   FECHA_ULTIMA_MODIFICACION           DateTime?            @db.DateTime
   USUARIO_ULTIMA_MODIFICACION         Int?
+  BIT_BORRADO                         Boolean              @default(false, map: "DF_DATOS_PERSONALES_AGENTE_JUBILA_BIT_BORRADO")
   REGIMEN_JUBILATORIO                 REGIMEN_JUBILATORIO? @relation(fields: [ID_REGIMEN_JUBILATORIO], references: [ID_REGIMEN_JUBILATORIO], onDelete: NoAction, onUpdate: NoAction, map: "fk_AGENTE_REGIMEN")
   USUARIO                             USUARIO?             @relation(fields: [USUARIO_CREACION], references: [ID_USUARIO], onDelete: NoAction, onUpdate: NoAction, map: "FK_DATOS_PERSONALES_USUARIO_CREACION")
   USUARIO_DATOS_PERSONALES_AGENTE_JUBILA_USUARIO_ULTIMA_MODIFICACIONToUSUARIO USUARIO? @relation("DATOS_PERSONALES_AGENTE_JUBILA_USUARIO_ULTIMA_MODIFICACIONToUSUARIO", fields: [USUARIO_ULTIMA_MODIFICACION], references: [ID_USUARIO], onDelete: NoAction, onUpdate: NoAction, map: "FK_DATOS_PERSONALES_USUARIO_MODIFICACION")

@@ -42,6 +42,102 @@ export function cleanImportedText(value: unknown): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Reparación de "?" que representan caracteres acentuados (ñ, tildes, N°)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Candidatos a reemplazar: acentos españoles, diéresis y eñe. */
+const REPAIR_CANDIDATES = ['á', 'é', 'í', 'ó', 'ú', 'ü', 'ñ']
+
+/** Convierte un carácter acentuado a su versión en mayúscula. */
+const ACCENT_UPPER: Record<string, string> = { á: 'Á', é: 'É', í: 'Í', ó: 'Ó', ú: 'Ú', ü: 'Ü', ñ: 'Ñ' }
+
+/**
+ * Construye un diccionario de palabras correctas a partir de textos sin "?".
+ * Clave: token sin acentos (normalizado). Valor: forma más frecuente,
+ * prefiriendo la que conserve acentos en caso de empate.
+ */
+export function buildSpanishTokenDictionary(
+  entries: Iterable<string | null | undefined>,
+): Map<string, string> {
+  const count = new Map<string, Map<string, number>>()
+  for (const raw of entries) {
+    if (!raw) continue
+    for (const tokenRaw of raw.split(/(\s+)/)) {
+      const token = tokenRaw.trim()
+      if (!token || token.includes('?')) continue
+      const key = removeAccents(token).toLowerCase()
+      let forms = count.get(key)
+      if (!forms) {
+        forms = new Map()
+        count.set(key, forms)
+      }
+      forms.set(token, (forms.get(token) ?? 0) + 1)
+    }
+  }
+  const dict = new Map<string, string>()
+  for (const [key, forms] of count) {
+    let best = ''
+    let bestN = -1
+    for (const [form, n] of forms) {
+      if (n > bestN || (n === bestN && removeAccents(form) !== form && !(removeAccents(best) !== best))) {
+        best = form
+        bestN = n
+      }
+    }
+    dict.set(key, best)
+  }
+  return dict
+}
+
+/**
+ * Repara los "?" que en los XLS corruptos representan una letra acentuada
+ * (ñ, á-é-í-ó-ú-ü) o el símbolo ordinal de "N°".
+ *
+ * Estrategia: para cada token con "?", se prueban los caracteres candidatos y
+ * se acepta el primero que forme una palabra conocida (según el diccionario
+ * de la propia base, sin acentos). Si ninguno coincide, se asume "ñ" (caso
+ * más frecuente). El ordinal "N?<dígitos>" se resuelve como "N°<dígitos>".
+ */
+export function repairQuestionMarks(value: string, dict?: Map<string, string>): string {
+  if (!value || !value.includes('?')) return value
+
+  const segs = value.split(/(\s+)/)
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i]
+    if (!seg.includes('?')) continue
+
+    // Ordinal N?<dígitos> -> N°<dígitos>
+    const ordinal = seg.match(/^([Nn])\?(\d+)$/)
+    if (ordinal) {
+      segs[i] = ordinal[1] === 'n' ? `n°${ordinal[2]}` : `N°${ordinal[2]}`
+      continue
+    }
+
+    const upperContext = /[A-Z]/.test(seg)
+    let resolved: string | null = null
+    if (dict) {
+      for (const cand of REPAIR_CANDIDATES) {
+        const key = removeAccents(seg.replace(/\?/g, cand)).toLowerCase()
+        if (dict.has(key)) {
+          // Usar la forma canónica conocida de la base (conserva la tilde/ñ
+          // correcta y su casuística), en vez de confiar en la heurística.
+          resolved = dict.get(key)!
+          break
+        }
+      }
+    }
+    if (resolved === null) {
+      resolved = seg.replace(/\?/g, 'ñ')
+    }
+    if (upperContext) {
+      resolved = resolved.replace(/[áéíóúüñ]/g, (ch) => ACCENT_UPPER[ch])
+    }
+    segs[i] = resolved
+  }
+  return segs.join('')
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // normalizeDni
 // ─────────────────────────────────────────────────────────────────────────────
 

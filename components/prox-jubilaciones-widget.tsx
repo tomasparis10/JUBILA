@@ -93,7 +93,7 @@ export default function ProxJubilacionesPanel({ onAgenteClick }: ProxJubilacione
         'Programa': ag.programa,
         'Cargo': ag.cargo,
         'Antigüedad Recibo': ag.antiguedadRecibo,
-        'Antigüedad Licencias': ag.antiguedadLicencias,
+        'Antigüedad al 31/12': ag.antiguedadLicencias,
       }))
 
       const workbook = XLSX.utils.book_new()

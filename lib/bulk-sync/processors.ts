@@ -19,6 +19,8 @@ import {
   normalizeDate,
   normalizeEstadoActivo,
   cleanImportedText,
+  repairQuestionMarks,
+  buildSpanishTokenDictionary,
   dateToStr,
   normStr,
   isIrrationalAltaDate,
@@ -72,6 +74,19 @@ export function analyzeDatosPersonales(
   const sinDni: DpRowError[] = []
   const dnisEnExcel = new Set<string>()
   const dnisVistos = new Set<string>()
+
+  // Diccionario de palabras correctas (sin "?") para reparar los caracteres
+  // acentuados que los XLS corruptos guardaron como "?".
+  const textoExistente: string[] = []
+  for (const ex of existentes.values()) {
+    for (const valor of [
+      ex.NOMBRE_AGENTE, ex.APELLIDO_AGENTE, ex.SECRETARIA, ex.PROGRAMA,
+      ex.CARGO, ex.CORREO_ELECTRONICO, ex.NUMERO_TELEFONO,
+    ]) {
+      if (typeof valor === 'string' && valor.trim()) textoExistente.push(valor)
+    }
+  }
+  const dictReparacion = buildSpanishTokenDictionary(textoExistente)
 
   rows.forEach((row, idx) => {
     const rowIndex = idx + 2 // 1-indexed, +1 por header
@@ -180,8 +195,11 @@ export function analyzeDatosPersonales(
     }
 
     // ── Otros campos ────────────────────────────────────────────────────────
-    const preserveText = (raw: unknown, actual: string | null | undefined) =>
-      cleanImportedText(raw) || actual || ''
+    const preserveText = (raw: unknown, actual: string | null | undefined) => {
+      const cleaned = cleanImportedText(raw)
+      const repaired = repairQuestionMarks(cleaned, dictReparacion)
+      return repaired || actual || ''
+    }
     const nombre = preserveText(getCol(row, 'NOMBRE_AGENTE'), existente?.NOMBRE_AGENTE)
     const apellido = preserveText(getCol(row, 'APELLIDO_AGENTE'), existente?.APELLIDO_AGENTE)
     const secretaria = preserveText(getCol(row, 'SECRETARIA'), existente?.SECRETARIA) || null

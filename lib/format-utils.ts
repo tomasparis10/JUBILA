@@ -85,6 +85,27 @@ export function isDateValidOrEmpty(val: string | null | undefined): boolean {
   return getDateValidationError(val, true) === null
 }
 
+function parseDateUtc(v: string): Date | null {
+  const parts = v.trim().split('/')
+  if (parts.length !== 3) return null
+  const [d, m, y] = parts.map((p) => parseInt(p, 10))
+  if (isNaN(d) || isNaN(m) || isNaN(y)) return null
+  return new Date(Date.UTC(y, m - 1, d))
+}
+
+/**
+ * Retorna true si la fecha "hasta" es anterior o igual a la fecha "desde" (rango inválido).
+ * Compara cronológicamente (no como texto). Si alguna fecha es inválida, retorna false.
+ */
+export function isDateRangeInvalid(desde: string | null | undefined, hasta: string | null | undefined): boolean {
+  if (!desde?.trim() || !hasta?.trim()) return false
+  if (!isValidDateString(desde) || !isValidDateString(hasta)) return false
+  const d = parseDateUtc(desde)
+  const h = parseDateUtc(hasta)
+  if (!d || !h) return false
+  return h.getTime() <= d.getTime()
+}
+
 
 /**
  * Formats digits into CUIL format: 00-00000000-0

@@ -5,9 +5,9 @@ import {
   RefreshCw, UserCheck, AlertCircle, CheckCircle2,
   Loader2, Clock, Users, X, UserCircle, Save, Search, ArrowRight,
   FileText, Database, Upload, ChevronDown, ChevronUp, ShieldAlert,
-  Pencil, UserCog,
+  Pencil, UserCog, Trash2,
 } from 'lucide-react'
-import { createAgente, searchAgentes, updateAgenteDatos, getRegimenes, getRegimenDeAgente, type RegimenOption } from '@/app/actions/agentes'
+import { createAgente, searchAgentes, updateAgenteDatos, deleteAgente, recuperarAgente, getRegimenes, getRegimenDeAgente, type RegimenOption } from '@/app/actions/agentes'
 import { FormField, SelectField } from '@/components/form-field'
 import { formatCuil, extractDniFromCuil } from '@/lib/format-utils'
 import type { JubilacionRecord } from '@/lib/jubilaciones-data'
@@ -59,7 +59,7 @@ function AntiguedadField({ label, value, onChange }: { label: string; value: str
 }
 
 // ── Formulario Gestión de Agentes (Crear + Editar + Grilla) ──────────────────
-function GestionAgentes() {
+function GestionAgentes({ esAdmin = false }: { esAdmin?: boolean }) {
   // ── Estado del formulario ────────────────────────────────────────────────
   const emptyForm = (): Partial<JubilacionRecord> => ({
     cuil: '', dni: '', apellidoNombres: '', sexo: '', estadoActivo: true, telefono: '',
@@ -82,6 +82,7 @@ function GestionAgentes() {
   const [gridError, setGridError] = useState<string | null>(null)
   const [selectedGridId, setSelectedGridId] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
+  const [deletingAgenteId, setDeletingAgenteId] = useState<number | null>(null)
 
   const formTopRef = useRef<HTMLDivElement>(null)
 
@@ -225,6 +226,27 @@ function GestionAgentes() {
           setEditingAgente(null)
           setSelectedGridId(null)
           setRegimenId('')
+        } else if (result.agenteBorrado) {
+          // El DNI pertenece a un agente dado de baja → ofrecer recuperarlo
+          const recuperar = window.confirm(
+            `El documento ${result.agenteBorrado.dni} corresponde al agente "${result.agenteBorrado.apellidoNombres}", que se encuentra dado de baja. ¿Desea recuperarlo?`
+          )
+          if (recuperar) {
+            const rec = await recuperarAgente(result.agenteBorrado.idAgente)
+            if (rec.ok && rec.record) {
+              setFormSuccess(`¡Agente "${rec.record.apellidoNombres}" recuperado con éxito!`)
+              setGridResults((prev) => [rec.record!, ...prev.filter((a) => a.agenteId !== rec.record!.agenteId)].slice(0, 100))
+              setHasSearched(true)
+              setForm(emptyForm())
+              setEditingAgente(null)
+              setSelectedGridId(null)
+              setRegimenId('')
+            } else {
+              setFormError(rec.error ?? 'Error al recuperar el agente.')
+            }
+          } else {
+            setFormError(result.error ?? 'Error al guardar.')
+          }
         } else {
           setFormError(result.error ?? 'Error al guardar.')
         }
@@ -233,6 +255,35 @@ function GestionAgentes() {
       setFormError('Error inesperado al guardar.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // ── Eliminar (baja lógica) agente ─────────────────────────────────────────
+  const handleDeleteAgente = async (agente: JubilacionRecord) => {
+    if (!agente.agenteId) return
+    const confirmar = window.confirm(
+      `¿Está seguro que desea dar de baja al agente "${agente.apellidoNombres}" (DNI ${agente.dni ?? '—'})?\n\nLa información se conserva y puede recuperarse cargando el mismo DNI en "Agregar Nuevo Agente".`
+    )
+    if (!confirmar) return
+    setDeletingAgenteId(agente.agenteId)
+    setGridError(null)
+    setFormSuccess(null)
+    try {
+      const result = await deleteAgente(agente.agenteId)
+      if (result.ok) {
+        setGridResults((prev) => prev.filter((a) => a.agenteId !== agente.agenteId))
+        if (selectedGridId === agente.id) {
+          setSelectedGridId(null)
+          setEditingAgente(null)
+        }
+        setFormSuccess(`Agente "${agente.apellidoNombres}" dado de baja correctamente.`)
+      } else {
+        setGridError(result.error ?? 'Error al dar de baja el agente.')
+      }
+    } catch {
+      setGridError('Error inesperado al dar de baja el agente.')
+    } finally {
+      setDeletingAgenteId(null)
     }
   }
 
@@ -428,12 +479,12 @@ function GestionAgentes() {
             placeholder="Cargo desempeñado"
           />
           <AntiguedadField
-            label="Antigüedad Recibo"
+            label="Antigüedad Actual"
             value={form.antiguedadRecibo ?? ''}
             onChange={(v) => update('antiguedadRecibo', v)}
           />
           <AntiguedadField
-            label="Antigüedad Licencias"
+            label="Antigüedad al 31/12"
             value={form.antiguedadLicencias ?? ''}
             onChange={(v) => update('antiguedadLicencias', v)}
           />
@@ -580,6 +631,24 @@ function GestionAgentes() {
                           <Pencil className="w-3 h-3" />
                           {isSelected ? 'Editando' : 'Editar'}
                         </button>
+                        {esAdmin && agente.agenteId != null && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteAgente(agente) }}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold transition border mt-1 ${
+                              deletingAgenteId === agente.agenteId
+                                ? 'bg-rose-700 text-white border-rose-700'
+                                : 'bg-white text-rose-600 border-slate-200 hover:bg-rose-50 hover:border-rose-200'
+                            }`}
+                            title={deletingAgenteId === agente.agenteId ? 'Eliminando…' : 'Dar de baja agente'}
+                          >
+                            {deletingAgenteId === agente.agenteId ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3 h-3" />
+                            )}
+                            {deletingAgenteId === agente.agenteId ? 'Borrando…' : 'Eliminar'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   )
@@ -1294,7 +1363,7 @@ export default function OperacionesPanel({ activeOp, onChangeOp, role }: Operaci
       </div>
 
       {/* Content */}
-      {opEfectivo === 'agregar-agente' && <GestionAgentes />}
+      {opEfectivo === 'agregar-agente' && <GestionAgentes esAdmin={esAdmin} />}
       {opEfectivo === 'actualizacion-masiva' && <ActualizacionMasiva />}
       {!opEfectivo && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">

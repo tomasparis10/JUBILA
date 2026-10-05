@@ -14,14 +14,43 @@ import {
   type TrazabilidadEntry,
 } from '@/lib/jubilaciones-data'
 import { FormField, SelectField, SectionCard } from '@/components/form-field'
-import { formatExpediente, formatDate, formatCuil, extractDniFromCuil, getDateValidationError } from '@/lib/format-utils'
-import { searchAgentes, updateJubila, createJubila, createAgente, getLastRecord } from '@/app/actions/agentes'
+import { formatExpediente, formatDate, formatCuil, extractDniFromCuil, getDateValidationError, isDateRangeInvalid } from '@/lib/format-utils'
+import { searchAgentes, updateJubila, createJubila, createAgente, recuperarAgente, getLastRecord } from '@/app/actions/agentes'
 import { GestorArchivos } from '@/components/gestor-archivos'
 import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud, PavPaseArchivo, PavDesistido, PaseReparticion, RenunciaRazonesParticulares, InvalidesProvisoria, RenunciaForm, RenunciaProvisoriaForm } from '@/components/pdf/PAVForms'
 
 // Normalize a string: lowercase + remove diacritics
 function normalize(str: string): string {
   return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
+// Etiquetas legibles para los campos (mensajes de error al usuario)
+const FIELD_LABELS: Record<string, string> = {
+  nroTramite: 'Número de Trámite',
+  dni: 'DNI',
+  cuil: 'CUIL',
+  apellidoNombres: 'Apellido y Nombres',
+  fechaNacimiento: 'Fecha de Nacimiento',
+  fBaja: 'Fecha Baja (Información Laboral)',
+  nroExpMunRenuncia: 'Nº Exp. Mun. Renuncia',
+  jNroExpCaja: 'J. Nº Exp. Caja',
+  nroResRenCaja: 'Nº Res. Caja',
+  nroExpCajDeneg: 'Nº Exp. Caj. Deneg.',
+  fSolicitud: 'Fecha Solicitud (Pasividad)',
+  fEstimadaJOrd: 'Fecha Estimada Jubilación Ordinaria',
+  nroExpPasividad: 'Nº Expediente Pasividad',
+  fFirmaConvenio: 'Fecha Firma Convenio',
+  fInicioPasividad: 'Fecha Inicio Pasividad',
+  observacionPasividad: 'Observaciones de Pasividad',
+  notificacionArt43: 'Notificación Art. 43',
+  nExpArt43SuspPago: 'Nº Expte. Suspensión de Pago',
+  observacion: 'Observaciones',
+  nroResRenov: 'Número Resolución Renovación',
+  nroExpMun: 'N.º Expte. Mun. Renuncia. Prov',
+  fechaDesdeExp: 'Fecha Desde Provisoria',
+  fechaHastaExp: 'Fecha Hasta Provisoria',
+  jNroExpCajaRenov: 'J. Nº Exp. Caja (Renovación)',
+  nroDcto: 'N.º Decreto/Resolución Municipal',
 }
 
 // Helper para validar todas las fechas cargadas de un registro
@@ -47,6 +76,13 @@ function getRecordDateErrors(record: JubilacionRecord): { label: string; error: 
   record.renovaciones?.forEach((rv, idx) => {
     check(rv.fechaDesdeExp, `Renovación #${idx + 1} - Fecha Desde`)
     check(rv.fechaHastaExp, `Renovación #${idx + 1} - Fecha Hasta`)
+    // El rango es inválido si la fecha "hasta" es menor o igual a la "desde"
+    if (rv.fechaDesdeExp?.trim() && rv.fechaHastaExp?.trim() && isDateRangeInvalid(rv.fechaDesdeExp, rv.fechaHastaExp)) {
+      errors.push({
+        label: `OTORGAMIENTO Y RENOVACIÓN #${idx + 1} - Rango de fechas`,
+        error: 'La fecha "hasta" debe ser posterior a la fecha "desde".',
+      })
+    }
   })
 
   return errors
@@ -94,6 +130,22 @@ function getRecordDiffs(initial: JubilacionRecord | null, current: JubilacionRec
   check('INFORMACIÓN LABORAL', 'J. Nº Exp. Caja', 'jNroExpCaja')
   check('INFORMACIÓN LABORAL', 'Nº Res. Caja', 'nroResRenCaja')
   check('INFORMACIÓN LABORAL', 'Nº Exp. Caj. Deneg.', 'nroExpCajDeneg')
+
+  // Datos Personales
+  check('DATOS PERSONALES', 'CUIL', 'cuil')
+  check('DATOS PERSONALES', 'DNI', 'dni')
+  check('DATOS PERSONALES', 'Apellido y Nombres', 'apellidoNombres')
+  check('DATOS PERSONALES', 'Teléfono', 'telefono')
+  check('DATOS PERSONALES', 'Correo Electrónico', 'correo')
+  check('DATOS PERSONALES', 'Fecha de Nacimiento', 'fechaNacimiento')
+  if (String(initial.estadoActivo) !== String(current.estadoActivo)) {
+    diffs.push({
+      section: 'DATOS PERSONALES',
+      label: 'Estado',
+      oldVal: initial.estadoActivo ? 'Activo' : 'Inactivo',
+      newVal: current.estadoActivo ? 'Activo' : 'Inactivo',
+    })
+  }
 
   // Renovaciones
   current.renovaciones.forEach((rv, i) => {
@@ -159,6 +211,12 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
   const [loadingRecord, setLoadingRecord] = useState(false)
   const [savingRecord, setSavingRecord]   = useState(false)
   const [globalError, setGlobalError]     = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors]     = useState<Record<string, string>>({})
+  const [fieldErrorPopup, setFieldErrorPopup] = useState<{
+    title: string
+    message: string
+    items: { label: string; error: string }[]
+  } | null>(null)
   const [forceTouchedDateErrors, setForceTouchedDateErrors] = useState(false)
 
   // ── Modal Gestionar Archivos ─────────────────────────────────────────────
@@ -241,10 +299,20 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
   }, [externalDni])
 
   // ── Mutations ────────────────────────────────────────────────────────────────
+  const clearFieldError = (field: string) => {
+    setFieldErrors((prev) => {
+      if (!(field in prev)) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
+
   const update = (field: keyof JubilacionRecord, value: string) => {
     setRecords((prev) =>
       prev.map((r) => (r.id === selectedId ? { ...r, [field]: value } : r))
     )
+    clearFieldError(field)
   }
 
   const updateCuil = (rawVal: string) => {
@@ -253,6 +321,8 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     setRecords((prev) =>
       prev.map((r) => (r.id === selectedId ? { ...r, cuil, dni } : r))
     )
+    clearFieldError('cuil')
+    clearFieldError('dni')
   }
 
   const updateRenovacion = (idx: number, field: string, value: string) => {
@@ -274,6 +344,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     setIsCreatingNew(false)
     setInitialSnapshot(null)
     setForceTouchedDateErrors(false)
+    setFieldErrors({})
     setTimeout(
       () => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
       50
@@ -303,7 +374,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       noCumpleAportesEdadAvanzada: false,
       estadoActivo: true,
       trazabilidad: [],
-      causaBaja: '1', nroTramite: '',
+      causaBaja: '', nroTramite: '',
       fBaja: '', nroExpMunRenuncia: '', jNroExpCaja: '', nroResRenCaja: '',
       nroExpCajDeneg: '', fInicExpMunPav: '', nroExpedienteMun: '',
       fInfPrevCaja: '', fecha: '', anios: '', meses: '', dias: '', edadReq: '',
@@ -322,6 +393,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     setIsCreatingNew(true)
     setEditing(true)
     setForceTouchedDateErrors(false)
+    setFieldErrors({})
   }
 
   const handleStartEdit = () => {
@@ -330,6 +402,8 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       setIsCreatingNew(false)
       setEditing(true)
       setForceTouchedDateErrors(false)
+      setFieldErrors({})
+      setFieldErrorPopup(null)
     }
   }
 
@@ -344,6 +418,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     setIsCreatingNew(false)
     setInitialSnapshot(null)
     setForceTouchedDateErrors(false)
+    setFieldErrors({})
   }
 
   const handleToggleEdit = () => {
@@ -352,10 +427,11 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
         const dateErrors = getRecordDateErrors(selected)
         if (dateErrors.length > 0) {
           setForceTouchedDateErrors(true)
-          const errorList = dateErrors.map((e) => `• ${e.label}: ${e.error}`).join('\n')
-          alert(
-            `No se pueden guardar los cambios porque hay fechas con formato incorrecto o incompletas:\n\n${errorList}\n\nPor favor revise los campos señalados en rojo.`
-          )
+          setFieldErrorPopup({
+            title: 'No se pueden guardar los cambios',
+            message: 'Revisá los campos marcados en rojo: tienen fechas con formato incorrecto o incompletas.',
+            items: dateErrors,
+          })
           return
         }
       }
@@ -374,6 +450,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     if (!selected) return
     setSavingRecord(true)
     setGlobalError(null)
+    setFieldErrors({})
     try {
       const result = await createAgente(selected)
       if (result.ok && result.id) {
@@ -388,8 +465,46 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
         setInitialSnapshot(null)
         setForceTouchedDateErrors(false)
         setShowSuccessPopup(true)
+      } else if (result.agenteBorrado) {
+        // El DNI pertenece a un agente dado de baja → ofrecer recuperarlo
+        setShowConfirmPopup(false)
+        const recuperar = window.confirm(
+          `El documento ${result.agenteBorrado.dni} corresponde al agente "${result.agenteBorrado.apellidoNombres}", que se encuentra dado de baja. ¿Desea recuperarlo?`
+        )
+        if (recuperar) {
+          const rec = await recuperarAgente(result.agenteBorrado.idAgente)
+          if (rec.ok && rec.record) {
+            setRecords((prev) =>
+              prev.map((r) => (r.id === selected.id ? (rec.record ?? r) : r))
+            )
+            setSelectedId(rec.record.id)
+            setEditing(false)
+            setIsCreatingNew(false)
+            setInitialSnapshot(null)
+            setForceTouchedDateErrors(false)
+            setShowSuccessPopup(true)
+          } else {
+            setGlobalError(rec.error ?? 'Error al recuperar el agente.')
+          }
+        } else {
+          setGlobalError(result.error ?? 'Error al guardar el agente.')
+        }
       } else {
-        setGlobalError(result.error ?? 'Error al guardar el agente.')
+        if (result.field && result.error) {
+          setFieldErrors((prev) => ({ ...prev, [result.field as string]: result.error as string }))
+          setFieldErrorPopup({
+            title: 'No se pueden guardar los cambios',
+            message: 'Revisá los campos marcados en rojo antes de volver a guardar.',
+            items: [
+              {
+                label: FIELD_LABELS[result.field] ?? (result.field as string),
+                error: result.error as string,
+              },
+            ],
+          })
+        } else {
+          setGlobalError(result.error ?? 'Error al guardar el agente.')
+        }
         setShowConfirmPopup(false)
       }
     } catch (err) {
@@ -404,12 +519,14 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     if (!selected) return
     setSavingRecord(true)
     setGlobalError(null)
+    setFieldErrors({})
     try {
       // Si el registro es un agente sin JUBILA (id con prefijo 'agente-'), crear en vez de actualizar
       const isAgenteOnly = selected.id.startsWith('agente-')
 
       let ok = false
       let errorMsg: string | undefined
+      let errorField: string | undefined
       let createdId: string | undefined
       let updatedRecord: JubilacionRecord | undefined
 
@@ -417,12 +534,14 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
         const result = await createJubila(selected)
         ok = result.ok
         errorMsg = result.error
+        errorField = result.field
         createdId = result.id
         updatedRecord = result.record
       } else {
         const result = await updateJubila(selected.id, selected)
         ok = result.ok
         errorMsg = result.error
+        errorField = result.field
         updatedRecord = result.record
       }
 
@@ -444,9 +563,19 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
         setIsCreatingNew(false)
         setInitialSnapshot(null)
         setForceTouchedDateErrors(false)
+        setFieldErrors({})
         setShowEditSuccessPopup(true)
       } else {
-        setGlobalError(errorMsg ?? 'Error al guardar los cambios.')
+        if (errorField && errorMsg) {
+          setFieldErrors((prev) => ({ ...prev, [errorField]: errorMsg }))
+          setFieldErrorPopup({
+            title: 'No se pueden guardar los cambios',
+            message: 'Revisá los campos marcados en rojo antes de volver a guardar.',
+            items: [{ label: FIELD_LABELS[errorField] ?? errorField, error: errorMsg }],
+          })
+        } else {
+          setGlobalError(errorMsg ?? 'Error al guardar los cambios.')
+        }
         setShowEditConfirmPopup(false)
       }
     } catch (err) {
@@ -776,6 +905,55 @@ if (!selected.programa?.trim()) missing.push('• Programa')
           </div>
         )}
 
+        {/* ── Popup de errores de campos ────────────────────────────────────── */}
+        {fieldErrorPopup && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={() => setFieldErrorPopup(null)}
+          >
+            <div
+              className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 px-5 py-3.5 bg-rose-600 text-white">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <h3 className="text-sm font-bold">{fieldErrorPopup.title}</h3>
+                <button
+                  onClick={() => setFieldErrorPopup(null)}
+                  className="ml-auto text-white/80 hover:text-white transition"
+                  title="Cerrar"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-5 overflow-y-auto">
+                <p className="text-sm text-slate-600 mb-3">{fieldErrorPopup.message}</p>
+                <ul className="flex flex-col gap-2">
+                  {fieldErrorPopup.items.map((item, i) => (
+                    <li
+                      key={`${item.label}-${i}`}
+                      className="rounded-lg border border-rose-200 bg-rose-50/70 px-3 py-2"
+                    >
+                      <p className="text-[10px] font-bold text-rose-800 uppercase tracking-wide">
+                        {item.label}
+                      </p>
+                      <p className="text-sm text-rose-700 mt-0.5">{item.error}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
+                <button
+                  onClick={() => setFieldErrorPopup(null)}
+                  className="px-4 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] text-white text-xs font-semibold transition"
+                >
+                  Entendido
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Not-found popup ───────────────────────────────────────────────── */}
         {notFoundPopup && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -1048,7 +1226,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                 <div className="flex items-center gap-3">
                   <UserCircle className="w-5 h-5 text-[#1e3a8a]" />
                   <h2 className="text-base font-bold text-slate-800">
-                    DATOS:{' '}
+                    EMPLEADO:{' '}
                     <span className="text-[#1e3a8a]">
                       {selected.apellidoNombres || (isCreatingNew ? 'Nuevo Agente' : 'Nuevo Registro')} &nbsp; {selected.dni}
                     </span>
@@ -1112,6 +1290,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     value={selected.dni}
                     placeholder="Número de DNI"
                     readOnly={true}
+                    error={fieldErrors.dni}
                   />
                   {/* 3. Apellido y Nombres (Solo letras) */}
                   <FormField
@@ -1122,6 +1301,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     className="col-span-2"
                     mask="letters"
                     readOnly={roAgente}
+                    error={fieldErrors.apellidoNombres}
                   />
                   {/* 4. Teléfono (Solo números) + Botón WhatsApp */}
                   <div className="flex flex-col gap-1">
@@ -1189,17 +1369,17 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     placeholder="Cargo desempeñado"
                     readOnly={true}
                   />
-                  {/* 9. Antigüedad Real */}
+                  {/* 9. Antigüedad Actual */}
                   <FormField
-                    label="Antigüedad Real"
+                    label="Antigüedad Actual"
                     value={selected.antiguedadRecibo}
                     onChange={(v) => update('antiguedadRecibo', v)}
                     placeholder="Ej: 25 años, 4 meses"
                     readOnly={true}
                   />
-                  {/* 10. Antigüedad Licencias */}
+                  {/* 10. Antigüedad al 31/12 */}
                   <FormField
-                    label="Antigüedad Licencias"
+                    label="Antigüedad al 31/12"
                     value={selected.antiguedadLicencias}
                     onChange={(v) => update('antiguedadLicencias', v)}
                     placeholder="Ej: 1 año, 2 meses"
@@ -1253,6 +1433,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     value={selected.causaBaja}
                     onChange={(v) => update('causaBaja', v)}
                     options={CAUSA_BAJA_OPTIONS}
+                    placeholder="Seleccione alguna causa de baja"
                     disabled={roJubila}
                     className="col-span-2"
                   />
@@ -1262,6 +1443,7 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     onChange={(v) => update('nroTramite', v)}
                     placeholder="000.000/00"
                     readOnly={roJubila}
+                    error={fieldErrors.nroTramite}
                   />
                   <FormField
                     label="Fecha Baja"
@@ -1358,7 +1540,16 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                               ['nroResRenov', 'nroExpMun', 'fechaDesdeExp', 'fechaHastaExp', 'nroDcto'] as const
                             ).map((field) => {
                               const isDate = field === 'fechaDesdeExp' || field === 'fechaHastaExp'
-                              const dateErr = isDate && rv[field] ? getDateValidationError(rv[field], forceTouchedDateErrors) : null
+                              const dateFormatErr = isDate && rv[field] ? getDateValidationError(rv[field], forceTouchedDateErrors) : null
+                              const rangeErr =
+                                isDate &&
+                                rv.fechaDesdeExp?.trim() &&
+                                rv.fechaHastaExp?.trim() &&
+                                isDateRangeInvalid(rv.fechaDesdeExp, rv.fechaHastaExp)
+                                  ? 'La fecha "hasta" debe ser posterior a la fecha "desde".'
+                                  : null
+                              const dateErr = dateFormatErr ?? rangeErr
+                              const errLabel = field === 'fechaHastaExp' ? dateErr : dateFormatErr
                               return (
                                 <td key={field} className="px-1 py-1 relative">
                                   <input
@@ -1391,9 +1582,9 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                                       roJubila ? 'bg-slate-50 text-slate-500 cursor-default' : ''
                                     }`}
                                   />
-                                  {dateErr && (
-                                    <span className="block text-[9px] text-rose-600 font-bold truncate mt-0.5" title={dateErr}>
-                                      {dateErr}
+                                  {errLabel && (
+                                    <span className="block text-[9px] text-rose-600 font-bold truncate mt-0.5" title={errLabel}>
+                                      {errLabel}
                                     </span>
                                   )}
                                 </td>

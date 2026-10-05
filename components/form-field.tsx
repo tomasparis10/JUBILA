@@ -115,9 +115,10 @@ interface SelectFieldProps {
   options: { value: string; label: string }[]
   className?: string
   disabled?: boolean
+  placeholder?: string
 }
 
-export function SelectField({ label, value, onChange, options, className, disabled = false }: SelectFieldProps) {
+export function SelectField({ label, value, onChange, options, className, disabled = false, placeholder }: SelectFieldProps) {
   return (
     <div className={cn('flex flex-col gap-1', className)}>
       <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">
@@ -129,9 +130,15 @@ export function SelectField({ label, value, onChange, options, className, disabl
         disabled={disabled}
         className={cn(
           'rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-[#1e3a8a] transition cursor-pointer',
-          disabled && 'bg-slate-50 text-slate-500 cursor-default'
+          disabled && 'bg-slate-50 text-slate-500 cursor-default',
+          placeholder && !value && 'text-slate-400'
         )}
       >
+        {placeholder && (
+          <option value="" disabled>
+            {placeholder}
+          </option>
+        )}
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}

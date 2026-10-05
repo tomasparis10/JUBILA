@@ -251,7 +251,7 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
       agente.FECHA_NACIMIENTO,
       agente.CARRERA_ADMINISTRATIVA ?? [],
     ),
-    causaBaja: '1',
+    causaBaja: '',
     nroTramite: '', fBaja: '', nroExpMunRenuncia: '',
     jNroExpCaja: '', nroResRenCaja: '', nroExpCajDeneg: '',
     fInicExpMunPav: '', nroExpedienteMun: '', fInfPrevCaja: '',
@@ -319,6 +319,7 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
     await requireAuthenticatedSession()
     if (!q) {
       const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
+        where: { BIT_BORRADO: false },
         include: includeClause,
         orderBy: [{ APELLIDO_AGENTE: 'asc' }, { NOMBRE_AGENTE: 'asc' }],
         take: 100,
@@ -333,7 +334,7 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
       // ── Búsqueda por DNI ──────────────────────────────────────────────────
       // 1º Coincidencia exacta
       const exactos = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
-        where: { DNI_AGENTE: cleanNumeric },
+        where: { DNI_AGENTE: cleanNumeric, BIT_BORRADO: false },
         include: includeClause,
         take: 50,
       })
@@ -341,7 +342,7 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
 
       // 2º Si no encuentra exacto, busca DNIs que contengan el número ingresado
       const parciales = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
-        where: { DNI_AGENTE: { contains: cleanNumeric } },
+        where: { DNI_AGENTE: { contains: cleanNumeric }, BIT_BORRADO: false },
         include: includeClause,
         orderBy: { DNI_AGENTE: 'asc' },
         take: 50,
@@ -359,7 +360,7 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
       // ── Búsqueda por Apellido / Nombre ────────────────────────────────────
       // 1º Coincidencia exacta de apellido
       const exactos = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
-        where: { APELLIDO_AGENTE: q },
+        where: { APELLIDO_AGENTE: q, BIT_BORRADO: false },
         include: includeClause,
         take: 50,
       })
@@ -368,6 +369,7 @@ export async function searchAgentes(query: string): Promise<JubilacionRecord[]> 
       // 2º Si no encuentra exacto, busca apellidos o nombres que contengan el texto ingresado
       const parciales = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
         where: {
+          BIT_BORRADO: false,
           OR: [
             { APELLIDO_AGENTE: { contains: q } },
             { NOMBRE_AGENTE: { contains: q } },
@@ -404,7 +406,10 @@ export async function getLastRecord(): Promise<JubilacionRecord | null> {
     await requireAuthenticatedSession()
     // Intentar obtener el último JUBILA activo
     const lastJubila = await prisma.jUBILA.findFirst({
-      where: { BIT_BORRADO: false },
+      where: {
+        BIT_BORRADO: false,
+        DATOS_PERSONALES_AGENTE_JUBILA: { is: { BIT_BORRADO: false } },
+      },
       // Último expediente MODIFICADO (no el creado más recientemente)
       orderBy: [{ FECHA_ULTIMA_MODIFICACION: 'desc' }, { FECHA_INICIO_CREACION_JUBILA: 'desc' }],
       include: {
@@ -432,6 +437,7 @@ export async function getLastRecord(): Promise<JubilacionRecord | null> {
 
     // Si no hay JUBILA, devolver el último agente de datos personales
     const lastAgente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findFirst({
+      where: { BIT_BORRADO: false },
       orderBy: { ID_DATOS_PERSONALES_AGENTE_JUBILA: 'desc' },
       include: { CARRERA_ADMINISTRATIVA: true },
     })
@@ -466,7 +472,10 @@ export async function getJubilaList(take = 50): Promise<JubilacionRecord[]> {
     await requireAuthenticatedSession()
     const safeTake = Number.isFinite(take) ? Math.max(1, Math.min(Math.trunc(take), 100)) : 50
     const jubilas = await prisma.jUBILA.findMany({
-      where: { BIT_BORRADO: false },
+      where: {
+        BIT_BORRADO: false,
+        DATOS_PERSONALES_AGENTE_JUBILA: { is: { BIT_BORRADO: false } },
+      },
       orderBy: { FECHA_ULTIMA_MODIFICACION: 'desc' },
       take: safeTake,
       include: {
@@ -500,10 +509,45 @@ export async function getJubilaList(take = 50): Promise<JubilacionRecord[]> {
 export async function updateJubila(
   id: string,
   data: Partial<JubilacionRecord>,
-): Promise<{ ok: boolean; error?: string; record?: JubilacionRecord }> {
+): Promise<{ ok: boolean; error?: string; field?: string; record?: JubilacionRecord }> {
   try {
     const { userId: usuarioId } = await requireAuthenticatedSession()
     const jubilaId = Number(id)
+
+    // Número de trámite único (no vacío) entre registros no borrados
+    const tramite = (data.nroTramite ?? '').trim()
+    if (data.nroTramite !== undefined && tramite) {
+      const duplicado = await prisma.jUBILA.findFirst({
+        where: {
+          INFORMACION_LABORAL_NUMERO_TRAMITE: data.nroTramite,
+          BIT_BORRADO: false,
+          NOT: { ID_JUBILA: jubilaId },
+        },
+        select: { ID_JUBILA: true, ID_AGENTE: true },
+      })
+      if (duplicado) {
+        return {
+          ok: false,
+          field: 'nroTramite',
+          error: `El número de trámite ${data.nroTramite} ya está cargado en otro registro. Debe ser único.`,
+        }
+      }
+    }
+
+    // Rango de fechas en Otorgamiento y Renovación: la "hasta" debe ser mayor a la "desde"
+    if (data.renovaciones) {
+      for (const rv of data.renovaciones) {
+        const desdeDate = rv.fechaDesdeExp?.trim() ? strToDate(rv.fechaDesdeExp) : null
+        const hastaDate = rv.fechaHastaExp?.trim() ? strToDate(rv.fechaHastaExp) : null
+        if (desdeDate && hastaDate && hastaDate.getTime() <= desdeDate.getTime()) {
+          return {
+            ok: false,
+            error: 'En Otorgamiento y Renovación: la fecha "hasta" debe ser posterior a la fecha "desde".',
+          }
+        }
+      }
+    }
+
     await prisma.jUBILA.update({
       where: { ID_JUBILA: jubilaId },
       data: {
@@ -602,7 +646,7 @@ export async function updateJubila(
 export async function createAgente(
   data: Partial<JubilacionRecord>,
   idRegimen?: number | null,
-): Promise<{ ok: boolean; id?: string; error?: string; record?: JubilacionRecord }> {
+): Promise<{ ok: boolean; id?: string; error?: string; field?: string; record?: JubilacionRecord; agenteBorrado?: AgenteBorradoInfo }> {
   try {
     const { userId: usuarioId } = await requireAuthenticatedSession()
     const dni = (data.dni ?? '').trim()
@@ -610,10 +654,10 @@ export async function createAgente(
     const sexo = (data.sexo ?? '').trim()
 
     if (!dni) {
-      return { ok: false, error: 'El DNI es obligatorio.' }
+      return { ok: false, field: 'dni', error: 'El DNI es obligatorio.' }
     }
     if (!apellidoNombres) {
-      return { ok: false, error: 'El Apellido y Nombres son obligatorios.' }
+      return { ok: false, field: 'apellidoNombres', error: 'El Apellido y Nombres son obligatorios.' }
     }
     if (sexo !== 'Masculino' && sexo !== 'Femenino') {
       return { ok: false, error: 'El Sexo debe ser Masculino o Femenino.' }
@@ -636,8 +680,20 @@ export async function createAgente(
     const existente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
       where: { DNI_AGENTE: dni },
     })
-    if (existente) {
-      return { ok: false, error: `Ya existe un agente registrado con el DNI ${dni}.` }
+    if (existente && !existente.BIT_BORRADO) {
+      return { ok: false, field: 'dni', error: `Ya existe un agente registrado con el DNI ${dni}.` }
+    }
+    // Existe pero fue eliminado (borrado lógico) → el cliente ofrece recuperarlo.
+    if (existente && existente.BIT_BORRADO) {
+      return {
+        ok: false,
+        agenteBorrado: {
+          idAgente: existente.ID_DATOS_PERSONALES_AGENTE_JUBILA,
+          dni: existente.DNI_AGENTE ?? dni,
+          apellidoNombres: `${existente.APELLIDO_AGENTE} ${existente.NOMBRE_AGENTE}`.trim(),
+        },
+        error: `El documento ${dni} corresponde a un agente registrado que se encuentra dado de baja.`,
+      }
     }
 
     const partes = apellidoNombres.split(' ')
@@ -686,7 +742,7 @@ export async function createAgente(
  */
 export async function createJubila(
   data: Partial<JubilacionRecord>,
-): Promise<{ ok: boolean; id?: string; error?: string; record?: JubilacionRecord }> {
+): Promise<{ ok: boolean; id?: string; error?: string; field?: string; record?: JubilacionRecord; agenteBorrado?: AgenteBorradoInfo }> {
   try {
     const { userId: usuarioId } = await requireAuthenticatedSession()
     if (!data.dni || !data.apellidoNombres) {
@@ -707,6 +763,49 @@ export async function createJubila(
       agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
         where: { DNI_AGENTE: data.dni.trim() },
       })
+    }
+
+    // El agente fue dado de baja (borrado lógico) → ofrecer recuperación
+    if (agente && agente.BIT_BORRADO) {
+      return {
+        ok: false,
+        agenteBorrado: {
+          idAgente: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA,
+          dni: agente.DNI_AGENTE ?? (data.dni ?? ''),
+          apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+        },
+        error: `El documento ${data.dni} corresponde a un agente registrado que se encuentra dado de baja.`,
+      }
+    }
+
+    // Número de trámite único (no vacío)
+    const tramite = (data.nroTramite ?? '').trim()
+    if (tramite) {
+      const duplicado = await prisma.jUBILA.findFirst({
+        where: { INFORMACION_LABORAL_NUMERO_TRAMITE: data.nroTramite, BIT_BORRADO: false },
+        select: { ID_JUBILA: true },
+      })
+      if (duplicado) {
+        return {
+          ok: false,
+          field: 'nroTramite',
+          error: `El número de trámite ${data.nroTramite} ya está cargado en otro registro. Debe ser único.`,
+        }
+      }
+    }
+
+    // Rango de fechas en Otorgamiento y Renovación: la "hasta" debe ser mayor a la "desde"
+    if (data.renovaciones) {
+      for (const rv of data.renovaciones) {
+        const desdeDate = rv.fechaDesdeExp?.trim() ? strToDate(rv.fechaDesdeExp) : null
+        const hastaDate = rv.fechaHastaExp?.trim() ? strToDate(rv.fechaHastaExp) : null
+        if (desdeDate && hastaDate && hastaDate.getTime() <= desdeDate.getTime()) {
+          return {
+            ok: false,
+            error: 'En Otorgamiento y Renovación: la fecha "hasta" debe ser posterior a la fecha "desde".',
+          }
+        }
+      }
     }
 
     // Si no existe, crearlo
@@ -808,10 +907,14 @@ export async function createJubila(
  */
 export async function deleteJubila(id: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    await requireAuthenticatedSession()
+    const session = await requireAuthenticatedSession()
     await prisma.jUBILA.update({
       where: { ID_JUBILA: Number(id) },
-      data: { BIT_BORRADO: true },
+      data: {
+        BIT_BORRADO: true,
+        FECHA_ULTIMA_MODIFICACION: new Date(),
+        USUARIO_MODIFICACION: session.userId,
+      },
     })
     revalidatePath('/')
     return { ok: true }
@@ -869,10 +972,15 @@ export async function getAgentesProxJubilacion(fechaDesde?: string, fechaHasta?:
     const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
       where: {
         ESTADO_ACTIVO: true,
+        BIT_BORRADO: false,
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: {
           gte: inicio,
           lte: fin,
         },
+        NOT: [
+          { PROGRAMA: { contains: '950000' } },
+          { PROGRAMA: { contains: '800000' } },
+        ],
       },
       select: {
         DNI_AGENTE: true,
@@ -940,6 +1048,7 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
     const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
       where: {
         DNI_AGENTE: { in: dnis },
+        BIT_BORRADO: false,
       },
       select: {
         DNI_AGENTE: true,
@@ -1021,6 +1130,7 @@ export async function getAgentesFaltaUnAno(fechaDesde?: string, fechaHasta?: str
 
     const agentes = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findMany({
       where: {
+        BIT_BORRADO: false,
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: {
           gte: inicio,
           lte: fin,
@@ -1088,10 +1198,15 @@ export async function getCantidadProxJubilar(): Promise<number> {
     return await prisma.dATOS_PERSONALES_AGENTE_JUBILA.count({
       where: {
         ESTADO_ACTIVO: true,
+        BIT_BORRADO: false,
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: {
           gte: hace30Dias,
           lte: en30Dias,
         },
+        NOT: [
+          { PROGRAMA: { contains: '950000' } },
+          { PROGRAMA: { contains: '800000' } },
+        ],
       },
     })
   } catch (error) {
@@ -1195,5 +1310,96 @@ export async function updateAgenteDatos(
   } catch (error) {
     logServerError('[updateAgenteDatos] Error:', error)
     return { ok: false, error: 'Error al actualizar los datos del agente en la base de datos.' }
+  }
+}
+
+export interface AgenteBorradoInfo {
+  idAgente: number
+  dni: string
+  apellidoNombres: string
+}
+
+/**
+ * Da de baja un agente con borrado lógico: marca BIT_BORRADO = true en sus
+ * datos personales y en todos sus registros JUBILA. La información no
+ * se elimina físicamente y puede recuperarse por DNI desde "Agregar Nuevo Agente".
+ * Solo usuarios con rol ADMIN.
+ */
+export async function deleteAgente(
+  agenteId: number,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const session = await requireAuthenticatedSession()
+    if (session.role !== 'ADMIN') {
+      return { ok: false, error: 'No autorizado. Esta función requiere rol ADMIN.' }
+    }
+    await prisma.$transaction([
+      prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
+        where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agenteId },
+        data: {
+          BIT_BORRADO: true,
+          FECHA_ULTIMA_MODIFICACION: new Date(),
+          USUARIO_ULTIMA_MODIFICACION: session.userId,
+        },
+      }),
+      prisma.jUBILA.updateMany({
+        where: { ID_AGENTE: agenteId, BIT_BORRADO: false },
+        data: {
+          BIT_BORRADO: true,
+          FECHA_ULTIMA_MODIFICACION: new Date(),
+          USUARIO_MODIFICACION: session.userId,
+        },
+      }),
+    ])
+    revalidatePath('/')
+    return { ok: true }
+  } catch (error) {
+    logServerError('[deleteAgente] Error:', error)
+    return { ok: false, error: 'Error al dar de baja el agente.' }
+  }
+}
+
+/**
+ * Reactiva un agente borrado lógicamente (BIT_BORRADO = false), restaurando
+ * también sus registros JUBILA. Se usa cuando en "Agregar Nuevo Agente" se
+ * detecta que el DNI cargado pertenece a un agente dado de baja.
+ * Solo usuarios con rol ADMIN.
+ */
+export async function recuperarAgente(
+  agenteId: number,
+): Promise<{ ok: boolean; error?: string; record?: JubilacionRecord }> {
+  try {
+    const session = await requireAuthenticatedSession()
+    if (session.role !== 'ADMIN') {
+      return { ok: false, error: 'No autorizado. Esta función requiere rol ADMIN.' }
+    }
+    await prisma.$transaction([
+      prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
+        where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agenteId },
+        data: {
+          BIT_BORRADO: false,
+          FECHA_ULTIMA_MODIFICACION: new Date(),
+          USUARIO_ULTIMA_MODIFICACION: session.userId,
+        },
+      }),
+      prisma.jUBILA.updateMany({
+        where: { ID_AGENTE: agenteId },
+        data: {
+          BIT_BORRADO: false,
+          FECHA_ULTIMA_MODIFICACION: new Date(),
+          USUARIO_MODIFICACION: session.userId,
+        },
+      }),
+    ])
+    revalidatePath('/')
+    const updated = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.findUnique({
+      where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agenteId },
+      include: { CARRERA_ADMINISTRATIVA: { orderBy: { FECHA_ALTA: 'asc' } } },
+    })
+    if (!updated) return { ok: false, error: 'No se pudo recuperar la información del agente.' }
+    return { ok: true, record: mapAgenteToRecord(updated) }
+  } catch (error) {
+    logServerError('[recuperarAgente] Error:', error)
+    return { ok: false, error: 'Error al recuperar el agente.' }
   }
 }
