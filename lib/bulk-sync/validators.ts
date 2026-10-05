@@ -130,6 +130,50 @@ export function validateFileMetadata(
 // Lectura del buffer
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Tabla del rango C1 (0x80-0x9F) de Windows-1252. */
+const CP1252_HIGH = [
+  0x20ac, 0x0081, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021,
+  0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008d, 0x017d, 0x008f,
+  0x0090, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014,
+  0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x009d, 0x017e, 0x0178,
+]
+
+/**
+ * Detecta si el "Excel" es en realidad una tabla HTML.
+ *
+ * Los exportes del sistema Raet llegan con extensión .xls pero son HTML
+ * (doctype + <table>). SheetJS los acepta, así que el problema no es que los
+ * rechace: es que los decodifica como UTF-8 y rompe las tildes y la Ñ.
+ */
+export function looksLikeHtml(buffer: Buffer): boolean {
+  const head = buffer.subarray(0, 2048).toString('latin1')
+  return /<html|<table|<!doctype\s+html/i.test(head)
+}
+
+/**
+ * Decodifica un buffer Windows-1252 a string.
+ *
+ * Los exports de Raet declaran `charset=iso-8859-1` pero escriben los bytes de
+ * Windows-1252 (0xD1 = Ñ, 0xB0 = °, 0x92 = ’). Al decodificar como UTF-8, el
+ * 0xD1 se toma como byte inicial de una secuencia de 2 bytes y se come la
+ * letra siguiente: "MONSEÑOR" Terminaba como "MONSEяR" (la Ñ como cirílico y la
+ * O desaparecida). Decodificar con cp1252 devuelve el texto exacto.
+ */
+export function decodeCp1252(buffer: Buffer): string {
+  let out = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < buffer.length; i += CHUNK) {
+    const slice = buffer.subarray(i, i + CHUNK)
+    let s = ''
+    for (let j = 0; j < slice.length; j++) {
+      const b = slice[j]
+      s += b >= 0x80 && b <= 0x9f ? String.fromCharCode(CP1252_HIGH[b - 0x80]) : String.fromCharCode(b)
+    }
+    out += s
+  }
+  return out
+}
+
 /**
  * Lee un Buffer de Excel y devuelve headers + filas.
  *
@@ -150,7 +194,23 @@ export function validateFileMetadata(
 export function readExcelBuffer(buffer: Buffer): ExcelParseResult {
   let workbook: XLSX.WorkBook
   try {
-    workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false, cellNF: true })
+    // Los exports de Raet son HTML con extensión .xls y bytes cp1252: hay que
+    // decodificarlos a mano para no perder tildes ni Ñ (ver decodeCp1252).
+    const esHtml = looksLikeHtml(buffer)
+    workbook = XLSX.read(esHtml ? decodeCp1252(buffer) : buffer, {
+      type: esHtml ? 'string' : 'buffer',
+      // En los exportes HTML SheetJS adivina el tipo de cada celda y convierte
+      // las fechas a serial de Excel. Eso rompe las fechas ambiguas: el texto
+      // "01/02/1900" se resolvía como 02/01 y quedaba el serial 3, que luego
+      // volvía como 03/01/1900 (3.640 agentes con fecha 1900 cambiaban de
+      // fecha en cada carga). Con raw el texto queda tal cual está en el
+      // archivo y lo interpreta normalizeDate como dd/mm/aaaa.
+      // De paso conserva los ceros a la izquierda del DNI ("05455449"), que
+      // al parsearlo como número perdían el 0 inicial.
+      raw: esHtml ? true : undefined,
+      cellDates: false,
+      cellNF: true,
+    })
   } catch {
     return { ok: false, headers: [], rows: [], error: 'El archivo Excel está corrupto o tiene un formato no compatible.' }
   }
@@ -259,4 +319,92 @@ export function getCol(row: Record<string, unknown>, colName: string): unknown {
   }
 
   return ''
+}
+
+/**
+ * Reduce un nombre de columna a una clave comparable: sin acentos, sin
+ * mayúsculas/minúsculas y sin espacios, signos ni símbolos.
+ * "Segundo N° Apellido Agente" y "SEGUNDO_APELLIDO_AGENTE" dan la misma clave.
+ */
+export function claveColumna(header: string): string {
+  return header
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+}
+
+/**
+ * Alias aceptados para los campos de nombre. Los Excel exportados por distintos
+ * orígenes usan variantes ("SEGUNDO_NOMBRE", "2° NOMBRE", "SEGUNDO NOMBRE
+ * AGENTE"), y antes esas columnas se ignoraban en silencio: los cambios de
+ * segundo nombre/apellido no llegaban a verse en el análisis.
+ */
+export const ALIAS_NOMBRE = ['NOMBRE', 'NOMBRE AGENTE', 'NOMBRES']
+export const ALIAS_APELLIDO = ['APELLIDO', 'APELLIDOS', 'APELLIDO AGENTE']
+export const ALIAS_SEGUNDO_NOMBRE = [
+  'SEGUNDO_NOMBRE',
+  'SEGUNDO NOMBRE AGENTE',
+  'SEGUNDO NOMBRE 1',
+  'SEGUNDO N° NOMBRE',
+  '2° NOMBRE',
+  '2 NOMBRE',
+  'NOMBRE 2',
+  'NOMBRE SECUNDARIO',
+]
+export const ALIAS_SEGUNDO_APELLIDO = [
+  'SEGUNDO_APELLIDO',
+  'SEGUNDO APELLIDO AGENTE',
+  'SEGUNDO APELLIDO 1',
+  'SEGUNDO N° APELLIDO',
+  '2° APELLIDO',
+  '2 APELLIDO',
+  'APELLIDO 2',
+  'APELLIDO SECUNDARIO',
+]
+
+/**
+ * Igual que getCol pero tolerante a variantes del encabezado:
+ * 1) coincidencia exacta
+ * 2) case-insensitive
+ * 3) clave normalizada (ignora acentos, espacios, "_", "°", etc.)
+ *
+ * Entre las variantes se elige la primera con valor. Si el archivo tiene la
+ * columna "SEGUNDO_NOMBRE_AGENTE" vacía pero trae el dato en "SEGUNDO NOMBRE",
+ * se usa la que tiene contenido: antes el dato se perdía en silencio.
+ * Si ninguna existe devuelve ''.
+ */
+export function getColFlexible(
+  row: Record<string, unknown>,
+  colName: string,
+  alias: string[] = [],
+): unknown {
+  const candidatas = [colName, ...alias]
+  const claves = Object.keys(row)
+  const vistos = new Set<string>()
+  const valores: unknown[] = []
+
+  const recolectar = (compararNormalizado: boolean) => {
+    for (const col of candidatas) {
+      const objetivo = compararNormalizado ? claveColumna(col) : col.toUpperCase()
+      if (!objetivo) continue
+      for (const key of claves) {
+        if (vistos.has(key)) continue
+        const coincide = compararNormalizado
+          ? claveColumna(key) === objetivo
+          : key.toUpperCase() === objetivo
+        if (!coincide) continue
+        vistos.add(key)
+        valores.push(row[key])
+      }
+    }
+  }
+
+  recolectar(false)
+  recolectar(true)
+
+  for (const valor of valores) {
+    if (valor !== '' && valor !== null && valor !== undefined) return valor
+  }
+  return valores.length ? valores[0] : ''
 }

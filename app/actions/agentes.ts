@@ -7,8 +7,37 @@ import { requireAuthenticatedSession } from '@/lib/auth-session'
 import { calcEdadActual } from '@/lib/bulk-sync/resolvers'
 import { calcAntiguedadRecibo, noCumpleAportesEdadAvanzada } from '@/utils/calculosPrevisionales'
 import { logServerError } from '@/lib/safe-error'
+import { composeFullName, splitNombreCompleto } from '@/lib/format-utils'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Campos de nombre de un agente: 4 partes separadas + nombre completo compuesto. */
+type NombreAgente = {
+  NOMBRE_AGENTE: string
+  APELLIDO_AGENTE: string
+  SEGUNDO_NOMBRE_AGENTE?: string | null
+  SEGUNDO_APELLIDO_AGENTE?: string | null
+}
+
+/**
+ * Arma las 4 partes del nombre y el nombre completo compuesto
+ * con el orden APELLIDO [2º APELLIDO] NOMBRE [2º NOMBRE].
+ */
+function mapNombreAgente(agente: NombreAgente) {
+  const partes = {
+    apellido: agente.APELLIDO_AGENTE,
+    segundoApellido: agente.SEGUNDO_APELLIDO_AGENTE,
+    nombre: agente.NOMBRE_AGENTE,
+    segundoNombre: agente.SEGUNDO_NOMBRE_AGENTE,
+  }
+  return {
+    apellidoNombres: composeFullName(partes),
+    apellido: partes.apellido ?? '',
+    segundoApellido: partes.segundoApellido ?? '',
+    nombre: partes.nombre ?? '',
+    segundoNombre: partes.segundoNombre ?? '',
+  }
+}
 
 /**
  * Convierte un Date de DB a string 'dd/mm/aaaa' o '' si es null.
@@ -162,7 +191,7 @@ function mapJubilaToRecord(j: NonNullable<JubilaWithRelations>): JubilacionRecor
     agenteId: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA,
     cuil: agente.CUIL ?? '',
     dni: agente.DNI_AGENTE ?? '',
-    apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+    ...mapNombreAgente(agente),
     sexo: agente.SEXO ?? '',
     estadoActivo: agente.ESTADO_ACTIVO,
     trazabilidad,
@@ -233,7 +262,7 @@ function mapAgenteToRecord(agente: AgenteBase): JubilacionRecord {
     agenteId: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA,
     cuil: agente.CUIL ?? '',
     dni: agente.DNI_AGENTE ?? '',
-    apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+    ...mapNombreAgente(agente),
     sexo: agente.SEXO ?? '',
     estadoActivo: agente.ESTADO_ACTIVO,
     trazabilidad: [],
@@ -650,14 +679,31 @@ export async function createAgente(
   try {
     const { userId: usuarioId } = await requireAuthenticatedSession()
     const dni = (data.dni ?? '').trim()
-    const apellidoNombres = (data.apellidoNombres ?? '').trim()
     const sexo = (data.sexo ?? '').trim()
+
+    // Nombre en 4 partes: apellido, segundo apellido, nombre y segundo nombre.
+    // Por compatibilidad, si no vienen separadas se usa el campo único
+    // "apellidoNombres" (primera palabra = apellido, resto = nombre).
+    const nombre = {
+      apellido: (data.apellido ?? '').trim(),
+      segundoApellido: (data.segundoApellido ?? '').trim(),
+      nombre: (data.nombre ?? '').trim(),
+      segundoNombre: (data.segundoNombre ?? '').trim(),
+    }
+    if (!nombre.apellido && !nombre.nombre) {
+      const partes = splitNombreCompleto(data.apellidoNombres)
+      nombre.apellido = partes.apellido
+      nombre.nombre = partes.nombre
+    }
 
     if (!dni) {
       return { ok: false, field: 'dni', error: 'El DNI es obligatorio.' }
     }
-    if (!apellidoNombres) {
-      return { ok: false, field: 'apellidoNombres', error: 'El Apellido y Nombres son obligatorios.' }
+    if (!nombre.apellido) {
+      return { ok: false, field: 'apellido', error: 'El Apellido es obligatorio.' }
+    }
+    if (!nombre.nombre) {
+      return { ok: false, field: 'nombre', error: 'El Nombre es obligatorio.' }
     }
     if (sexo !== 'Masculino' && sexo !== 'Femenino') {
       return { ok: false, error: 'El Sexo debe ser Masculino o Femenino.' }
@@ -690,21 +736,19 @@ export async function createAgente(
         agenteBorrado: {
           idAgente: existente.ID_DATOS_PERSONALES_AGENTE_JUBILA,
           dni: existente.DNI_AGENTE ?? dni,
-          apellidoNombres: `${existente.APELLIDO_AGENTE} ${existente.NOMBRE_AGENTE}`.trim(),
+          apellidoNombres: mapNombreAgente(existente).apellidoNombres,
         },
         error: `El documento ${dni} corresponde a un agente registrado que se encuentra dado de baja.`,
       }
     }
 
-    const partes = apellidoNombres.split(' ')
-    const apellido = partes[0] ?? ''
-    const nombre = partes.slice(1).join(' ') || apellido
-
     const nuevoAgente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.create({
       data: {
         DNI_AGENTE: dni,
-        NOMBRE_AGENTE: nombre,
-        APELLIDO_AGENTE: apellido,
+        NOMBRE_AGENTE: nombre.nombre,
+        APELLIDO_AGENTE: nombre.apellido,
+        SEGUNDO_NOMBRE_AGENTE: nombre.segundoNombre || null,
+        SEGUNDO_APELLIDO_AGENTE: nombre.segundoApellido || null,
         FECHA_NACIMIENTO: strToDate(data.fechaNacimiento ?? '') ?? new Date(1970, 0, 1),
         SECRETARIA: data.secretaria?.trim() || null,
         PROGRAMA: data.programa?.trim() || null,
@@ -772,7 +816,7 @@ export async function createJubila(
         agenteBorrado: {
           idAgente: agente.ID_DATOS_PERSONALES_AGENTE_JUBILA,
           dni: agente.DNI_AGENTE ?? (data.dni ?? ''),
-          apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+          apellidoNombres: mapNombreAgente(agente).apellidoNombres,
         },
         error: `El documento ${data.dni} corresponde a un agente registrado que se encuentra dado de baja.`,
       }
@@ -810,15 +854,15 @@ export async function createJubila(
 
     // Si no existe, crearlo
     if (!agente) {
-      const partes = (data.apellidoNombres ?? '').trim().split(' ')
-      const apellido = partes[0] ?? ''
-      const nombre = partes.slice(1).join(' ') || apellido
+      const partes = splitNombreCompleto(data.apellidoNombres)
 
       agente = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.create({
         data: {
           DNI_AGENTE: data.dni.trim(),
-          NOMBRE_AGENTE: nombre,
-          APELLIDO_AGENTE: apellido,
+          NOMBRE_AGENTE: (data.nombre ?? '').trim() || partes.nombre || partes.apellido,
+          APELLIDO_AGENTE: (data.apellido ?? '').trim() || partes.apellido,
+          SEGUNDO_NOMBRE_AGENTE: (data.segundoNombre ?? '').trim() || null,
+          SEGUNDO_APELLIDO_AGENTE: (data.segundoApellido ?? '').trim() || null,
           FECHA_NACIMIENTO: strToDate(data.fechaNacimiento ?? '') ?? new Date(),
           SECRETARIA: data.secretaria || null,
           PROGRAMA: data.programa || null,
@@ -986,6 +1030,8 @@ export async function getAgentesProxJubilacion(fechaDesde?: string, fechaHasta?:
         DNI_AGENTE: true,
         NOMBRE_AGENTE: true,
         APELLIDO_AGENTE: true,
+        SEGUNDO_NOMBRE_AGENTE: true,
+        SEGUNDO_APELLIDO_AGENTE: true,
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: true,
         CUIL: true,
         FECHA_NACIMIENTO: true,
@@ -1013,7 +1059,7 @@ export async function getAgentesProxJubilacion(fechaDesde?: string, fechaHasta?:
       const regimen = agente.ID_REGIMEN_JUBILATORIO ? regimenPorId.get(agente.ID_REGIMEN_JUBILATORIO) : undefined
       return {
         dni: agente.DNI_AGENTE ?? '',
-        apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+        apellidoNombres: mapNombreAgente(agente).apellidoNombres,
         fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
         cuil: agente.CUIL ?? '',
         fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
@@ -1054,6 +1100,8 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
         DNI_AGENTE: true,
         NOMBRE_AGENTE: true,
         APELLIDO_AGENTE: true,
+        SEGUNDO_NOMBRE_AGENTE: true,
+        SEGUNDO_APELLIDO_AGENTE: true,
         FECHA_ESTIMADA_JUBILACI_N_ORDINARIA: true,
         CUIL: true,
         FECHA_NACIMIENTO: true,
@@ -1078,7 +1126,7 @@ export async function getAgentesData(dnis: string[]): Promise<AgenteProxJubilaci
       const regimen = agente.ID_REGIMEN_JUBILATORIO ? regimenPorId.get(agente.ID_REGIMEN_JUBILATORIO) : undefined
       return {
         dni: agente.DNI_AGENTE ?? '',
-        apellidoNombres: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+        apellidoNombres: mapNombreAgente(agente).apellidoNombres,
         fechaEstimada: dbDateToStr(agente.FECHA_ESTIMADA_JUBILACI_N_ORDINARIA),
         cuil: agente.CUIL ?? '',
         fechaNacimiento: dbDateToStr(agente.FECHA_NACIMIENTO),
@@ -1140,6 +1188,8 @@ export async function getAgentesFaltaUnAno(fechaDesde?: string, fechaHasta?: str
         DNI_AGENTE: true,
         NOMBRE_AGENTE: true,
         APELLIDO_AGENTE: true,
+        SEGUNDO_NOMBRE_AGENTE: true,
+        SEGUNDO_APELLIDO_AGENTE: true,
       },
       orderBy: [
         { APELLIDO_AGENTE: 'asc' },
@@ -1149,7 +1199,7 @@ export async function getAgentesFaltaUnAno(fechaDesde?: string, fechaHasta?: str
 
     return agentes.map((agente) => ({
       dni: agente.DNI_AGENTE ?? '',
-      nombreCompleto: `${agente.APELLIDO_AGENTE} ${agente.NOMBRE_AGENTE}`.trim(),
+      nombreCompleto: mapNombreAgente(agente).apellidoNombres,
     }))
   } catch (error) {
     logServerError('[getAgentesFaltaUnAno] Error:', error)
@@ -1241,7 +1291,8 @@ export async function getRegimenDeAgente(dni: string): Promise<string> {
 export async function updateAgenteDatos(
   agenteId: number,
   data: Pick<JubilacionRecord,
-    'cuil' | 'dni' | 'apellidoNombres' | 'sexo' | 'estadoActivo' | 'telefono' |
+    'cuil' | 'dni' | 'apellidoNombres' | 'nombre' | 'segundoNombre' | 'apellido' |
+    'segundoApellido' | 'sexo' | 'estadoActivo' | 'telefono' |
     'correo' | 'fechaNacimiento' | 'edadActual' | 'programa' | 'secretaria' |
     'cargo' | 'antiguedadRecibo' | 'antiguedadLicencias' |
     'fechaEstimadaJubilacionOrdinaria'
@@ -1276,9 +1327,11 @@ export async function updateAgenteDatos(
     })
     if (existente) return { ok: false, error: `Ya existe otro agente registrado con el DNI ${dni}.` }
 
-    const partes = (data.apellidoNombres ?? '').trim().split(' ')
-    const apellido = partes[0] ?? ''
-    const nombre = partes.slice(1).join(' ') || apellido
+    const partes = (data.apellidoNombres ?? '').trim().split(/\s+/)
+    const apellido = (data.apellido ?? '').trim() || partes[0] || ''
+    const nombre = (data.nombre ?? '').trim() || partes.slice(1).join(' ') || apellido
+    if (!apellido) return { ok: false, error: 'El Apellido es obligatorio.' }
+    if (!nombre) return { ok: false, error: 'El Nombre es obligatorio.' }
 
     const updated = await prisma.dATOS_PERSONALES_AGENTE_JUBILA.update({
       where: { ID_DATOS_PERSONALES_AGENTE_JUBILA: agenteId },
@@ -1287,6 +1340,8 @@ export async function updateAgenteDatos(
         CUIL: data.cuil?.trim() || null,
         APELLIDO_AGENTE: apellido,
         NOMBRE_AGENTE: nombre,
+        SEGUNDO_APELLIDO_AGENTE: data.segundoApellido?.trim() || null,
+        SEGUNDO_NOMBRE_AGENTE: data.segundoNombre?.trim() || null,
         SEXO: data.sexo?.trim() || null,
         ESTADO_ACTIVO: data.estadoActivo,
         NUMERO_TELEFONO: data.telefono?.trim() || null,

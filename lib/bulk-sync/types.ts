@@ -19,7 +19,9 @@ export interface DpRowNueva {
   kind: 'insert'
   dni: string | null
   nombre: string
+  segundoNombre: string
   apellido: string
+  segundoApellido: string
   secretaria: string
   programa: string
   cargo: string
@@ -46,7 +48,9 @@ export interface DpRowActualizada {
 
 export interface DpUpdatePayload {
   NOMBRE_AGENTE: string
+  SEGUNDO_NOMBRE_AGENTE: string | null
   APELLIDO_AGENTE: string
+  SEGUNDO_APELLIDO_AGENTE: string | null
   FECHA_NACIMIENTO: string // ISO date string
   SECRETARIA: string | null
   PROGRAMA: string | null
@@ -140,7 +144,9 @@ export interface AgenteExistente {
   DNI_AGENTE: string | null
   ID_REGIMEN_JUBILATORIO: number | null
   NOMBRE_AGENTE: string
+  SEGUNDO_NOMBRE_AGENTE: string | null
   APELLIDO_AGENTE: string
+  SEGUNDO_APELLIDO_AGENTE: string | null
   FECHA_NACIMIENTO: Date
   SECRETARIA: string | null
   PROGRAMA: string | null

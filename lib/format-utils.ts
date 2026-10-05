@@ -108,6 +108,32 @@ export function isDateRangeInvalid(desde: string | null | undefined, hasta: stri
 
 
 /**
+ * Compone el nombre completo del agente con el orden acordado:
+ * APELLIDO [2º APELLIDO] NOMBRE [2º NOMBRE]
+ * Ignora las partes vacías.
+ */
+export function composeFullName(parts: {
+  apellido?: string | null
+  segundoApellido?: string | null
+  nombre?: string | null
+  segundoNombre?: string | null
+}): string {
+  return [parts.apellido, parts.segundoApellido, parts.nombre, parts.segundoNombre]
+    .map((v) => (v ?? '').trim())
+    .filter(Boolean)
+    .join(' ')
+}
+
+/**
+ * Separa un texto "apellido nombre" en sus partes.
+ * La primera palabra queda como apellido y el resto como nombre (comportamiento previo).
+ */
+export function splitNombreCompleto(valor: string | null | undefined): { apellido: string; nombre: string } {
+  const partes = (valor ?? '').trim().split(/\s+/)
+  return { apellido: partes[0] ?? '', nombre: partes.slice(1).join(' ') }
+}
+
+/**
  * Formats digits into CUIL format: 00-00000000-0
  * Only accepts numbers and formats as XX-XXXXXXXX-X (11 digits max)
  */

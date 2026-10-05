@@ -14,7 +14,7 @@ import {
   type TrazabilidadEntry,
 } from '@/lib/jubilaciones-data'
 import { FormField, SelectField, SectionCard } from '@/components/form-field'
-import { formatExpediente, formatDate, formatCuil, extractDniFromCuil, getDateValidationError, isDateRangeInvalid } from '@/lib/format-utils'
+import { formatExpediente, formatDate, formatCuil, extractDniFromCuil, getDateValidationError, isDateRangeInvalid, composeFullName, splitNombreCompleto } from '@/lib/format-utils'
 import { searchAgentes, updateJubila, createJubila, createAgente, recuperarAgente, getLastRecord } from '@/app/actions/agentes'
 import { GestorArchivos } from '@/components/gestor-archivos'
 import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud, PavPaseArchivo, PavDesistido, PaseReparticion, RenunciaRazonesParticulares, InvalidesProvisoria, RenunciaForm, RenunciaProvisoriaForm } from '@/components/pdf/PAVForms'
@@ -30,6 +30,10 @@ const FIELD_LABELS: Record<string, string> = {
   dni: 'DNI',
   cuil: 'CUIL',
   apellidoNombres: 'Apellido y Nombres',
+  apellido: 'Apellido',
+  segundoApellido: '2º Apellido',
+  nombre: 'Nombre',
+  segundoNombre: '2º Nombre',
   fechaNacimiento: 'Fecha de Nacimiento',
   fBaja: 'Fecha Baja (Información Laboral)',
   nroExpMunRenuncia: 'Nº Exp. Mun. Renuncia',
@@ -315,6 +319,25 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     clearFieldError(field)
   }
 
+  /**
+   * Actualiza una de las 4 partes del nombre y recompone el nombre completo
+   * con el orden APELLIDO [2º APELLIDO] NOMBRE [2º NOMBRE].
+   */
+  const updateNombre = (
+    field: 'apellido' | 'segundoApellido' | 'nombre' | 'segundoNombre',
+    value: string
+  ) => {
+    setRecords((prev) =>
+      prev.map((r) => {
+        if (r.id !== selectedId) return r
+        const next = { ...r, [field]: value }
+        return { ...next, apellidoNombres: composeFullName(next) }
+      })
+    )
+    clearFieldError(field)
+    clearFieldError('apellidoNombres')
+  }
+
   const updateCuil = (rawVal: string) => {
     const cuil = formatCuil(rawVal)
     const dni = extractDniFromCuil(rawVal)
@@ -360,6 +383,10 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       cuil: '',
       dni: '',
       apellidoNombres: '',
+      nombre: '',
+      segundoNombre: '',
+      apellido: '',
+      segundoApellido: '',
       sexo: '',
       telefono: '',
       correo: '',
@@ -1007,7 +1034,11 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     <li><span className="font-semibold text-slate-900">Estado:</span> <span className="text-emerald-700 font-bold">ACTIVO (Predeterminado)</span></li>
                     <li><span className="font-semibold text-slate-900">CUIL:</span> {selected.cuil || '—'}</li>
                     <li><span className="font-semibold text-slate-900">DNI (automático):</span> {selected.dni || '—'}</li>
-                    <li><span className="font-semibold text-slate-900">Apellido y Nombres:</span> {selected.apellidoNombres || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Apellido:</span> {selected.apellido || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">2º Apellido:</span> {selected.segundoApellido || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Nombre:</span> {selected.nombre || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">2º Nombre:</span> {selected.segundoNombre || '—'}</li>
+                    <li><span className="font-semibold text-slate-900">Nombre completo:</span> {selected.apellidoNombres || '—'}</li>
                     <li><span className="font-semibold text-slate-900">Teléfono:</span> {selected.telefono || '—'}</li>
                     <li><span className="font-semibold text-slate-900">Correo Electrónico:</span> {selected.correo || '—'}</li>
                     <li><span className="font-semibold text-slate-900">Fecha de Nacimiento:</span> {selected.fechaNacimiento || '—'}</li>
@@ -1292,17 +1323,72 @@ if (!selected.programa?.trim()) missing.push('• Programa')
                     readOnly={true}
                     error={fieldErrors.dni}
                   />
-                  {/* 3. Apellido y Nombres (Solo letras) */}
-                  <FormField
-                    label="Apellido y Nombres"
-                    value={selected.apellidoNombres}
-                    onChange={(v) => update('apellidoNombres', v)}
-                    placeholder="Apellido y Nombres"
-                    className="col-span-2"
-                    mask="letters"
-                    readOnly={roAgente}
-                    error={fieldErrors.apellidoNombres}
-                  />
+                  {/* 3. Nombre: 4 campos separados solo al agregar un agente nuevo;
+                      en registros existentes se muestra el nombre completo */}
+                  {isCreatingNew ? (
+                    <>
+                      <FormField
+                        label="Apellido"
+                        value={selected.apellido}
+                        onChange={(v) => updateNombre('apellido', v)}
+                        placeholder="Apellido"
+                        mask="letters"
+                        error={fieldErrors.apellido}
+                      />
+                      <FormField
+                        label="2º Apellido"
+                        value={selected.segundoApellido}
+                        onChange={(v) => updateNombre('segundoApellido', v)}
+                        placeholder="Opcional"
+                        mask="letters"
+                        error={fieldErrors.segundoApellido}
+                      />
+                      <FormField
+                        label="Nombre"
+                        value={selected.nombre}
+                        onChange={(v) => updateNombre('nombre', v)}
+                        placeholder="Nombre"
+                        mask="letters"
+                        error={fieldErrors.nombre}
+                      />
+                      <FormField
+                        label="2º Nombre"
+                        value={selected.segundoNombre}
+                        onChange={(v) => updateNombre('segundoNombre', v)}
+                        placeholder="Opcional"
+                        mask="letters"
+                        error={fieldErrors.segundoNombre}
+                      />
+                    </>
+                  ) : (
+                    <FormField
+                      label="Apellido y Nombres"
+                      value={selected.apellidoNombres}
+                      onChange={(v) => {
+                        // Al reescribir el nombre completo se reparten sus partes
+                        // y se limpian los segundos nombres/apellidos.
+                        const partes = splitNombreCompleto(v)
+                        setRecords((prev) =>
+                          prev.map((r) => r.id === selectedId
+                            ? {
+                                ...r,
+                                apellido: partes.apellido,
+                                segundoApellido: '',
+                                nombre: partes.nombre || partes.apellido,
+                                segundoNombre: '',
+                                apellidoNombres: v.trim(),
+                              }
+                            : r)
+                        )
+                        clearFieldError('apellidoNombres')
+                      }}
+                      placeholder="Apellido y Nombres"
+                      className="col-span-2"
+                      mask="letters"
+                      readOnly={roAgente}
+                      error={fieldErrors.apellidoNombres}
+                    />
+                  )}
                   {/* 4. Teléfono (Solo números) + Botón WhatsApp */}
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">

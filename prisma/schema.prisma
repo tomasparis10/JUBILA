@@ -36,6 +36,8 @@ model DATOS_PERSONALES_AGENTE_JUBILA {
   DNI_AGENTE                          String?              @unique(map: "UQ__DATOS_PE__0CB30166200518FE") @db.VarChar(50)
   NOMBRE_AGENTE                       String               @db.VarChar(255)
   APELLIDO_AGENTE                     String               @db.VarChar(255)
+  SEGUNDO_NOMBRE_AGENTE               String?              @db.VarChar(255)
+  SEGUNDO_APELLIDO_AGENTE             String?              @db.VarChar(255)
   FECHA_NACIMIENTO                    DateTime             @db.Date
   SECRETARIA                          String?              @db.VarChar(255)
   PROGRAMA                            String?              @db.VarChar(255)

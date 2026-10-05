@@ -145,6 +145,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
               DNI_AGENTE: row.dni as string,
               NOMBRE_AGENTE: row.nombre,
               APELLIDO_AGENTE: row.apellido,
+              SEGUNDO_NOMBRE_AGENTE: row.segundoNombre || null,
+              SEGUNDO_APELLIDO_AGENTE: row.segundoApellido || null,
               FECHA_NACIMIENTO: fechaNac,
               SECRETARIA: row.secretaria || null,
               PROGRAMA: row.programa || null,
@@ -185,7 +187,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
         const filasDp = dp.actualizadas.map((row) => ({
           dni: row.dni,
           nombre: row.payload.NOMBRE_AGENTE,
+          segundoNombre: row.payload.SEGUNDO_NOMBRE_AGENTE,
           apellido: row.payload.APELLIDO_AGENTE,
+          segundoApellido: row.payload.SEGUNDO_APELLIDO_AGENTE,
           // Fecha con formato plano 'yyyy-mm-dd' (partes UTC): nunca se convierte
           // por zona horaria ni depende de cómo SQL Server enlaza un Date.
           fechaNac: row.payload.FECHA_NACIMIENTO.slice(0, 10),
@@ -207,7 +211,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
                 UPDATE dATOS_PERSONALES_AGENTE_JUBILA
                 SET
                   NOMBRE_AGENTE = v.nombre,
+                  SEGUNDO_NOMBRE_AGENTE = v.segundoNombre,
                   APELLIDO_AGENTE = v.apellido,
+                  SEGUNDO_APELLIDO_AGENTE = v.segundoApellido,
                   FECHA_NACIMIENTO = v.fechaNac,
                   SECRETARIA = v.secretaria,
                   PROGRAMA = v.programa,
@@ -226,7 +232,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
                       (f) => Prisma.sql`(
                         CAST(${f.dni} AS NVARCHAR(50)),
                         CAST(${f.nombre} AS NVARCHAR(255)),
+                        CAST(${f.segundoNombre} AS NVARCHAR(255)),
                         CAST(${f.apellido} AS NVARCHAR(255)),
+                        CAST(${f.segundoApellido} AS NVARCHAR(255)),
                         CAST(${f.fechaNac} AS DATE),
                         CAST(${f.secretaria} AS NVARCHAR(255)),
                         CAST(${f.programa} AS NVARCHAR(255)),
@@ -241,7 +249,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CommitApi
                     ),
                     ',',
                   )}
-                ) AS v(dni, nombre, apellido, fechaNac, secretaria, programa, cargo, sexo, estado, cuil, telefono, correo, idRegimen)
+                ) AS v(dni, nombre, segundoNombre, apellido, segundoApellido, fechaNac, secretaria, programa, cargo, sexo, estado, cuil, telefono, correo, idRegimen)
                 WHERE dATOS_PERSONALES_AGENTE_JUBILA.DNI_AGENTE = v.dni
               `),
             )

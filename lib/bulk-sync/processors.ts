@@ -24,9 +24,18 @@ import {
   dateToStr,
   normStr,
   isIrrationalAltaDate,
+  reconciliarPar,
+  componerNombreCompleto,
 } from './normalizers'
 import { resolveRegimenId, calcFechaEstimada, calcEdadActual } from './resolvers'
-import { getCol } from './validators'
+import {
+  getCol,
+  getColFlexible,
+  ALIAS_NOMBRE,
+  ALIAS_APELLIDO,
+  ALIAS_SEGUNDO_NOMBRE,
+  ALIAS_SEGUNDO_APELLIDO,
+} from './validators'
 import type {
   AgenteExistente,
   FaseExistente,
@@ -80,7 +89,8 @@ export function analyzeDatosPersonales(
   const textoExistente: string[] = []
   for (const ex of existentes.values()) {
     for (const valor of [
-      ex.NOMBRE_AGENTE, ex.APELLIDO_AGENTE, ex.SECRETARIA, ex.PROGRAMA,
+      ex.NOMBRE_AGENTE, ex.SEGUNDO_NOMBRE_AGENTE, ex.APELLIDO_AGENTE, ex.SEGUNDO_APELLIDO_AGENTE,
+      ex.SECRETARIA, ex.PROGRAMA,
       ex.CARGO, ex.CORREO_ELECTRONICO, ex.NUMERO_TELEFONO,
     ]) {
       if (typeof valor === 'string' && valor.trim()) textoExistente.push(valor)
@@ -200,8 +210,22 @@ export function analyzeDatosPersonales(
       const repaired = repairQuestionMarks(cleaned, dictReparacion)
       return repaired || actual || ''
     }
-    const nombre = preserveText(getCol(row, 'NOMBRE_AGENTE'), existente?.NOMBRE_AGENTE)
-    const apellido = preserveText(getCol(row, 'APELLIDO_AGENTE'), existente?.APELLIDO_AGENTE)
+    // Los Excel exportados por distintos orígenes traen el nombre completo en la
+    // columna del primer campo y además el segundo en su propia columna.
+    // reconciliarPar separa el sufijo para no duplicarlo y conserva el valor de
+    // la DB cuando la columna viene vacía.
+    const [nombre, segundoNombre] = reconciliarPar(
+      preserveText(getColFlexible(row, 'NOMBRE_AGENTE', ALIAS_NOMBRE), existente?.NOMBRE_AGENTE),
+      preserveText(getColFlexible(row, 'SEGUNDO_NOMBRE_AGENTE', ALIAS_SEGUNDO_NOMBRE), existente?.SEGUNDO_NOMBRE_AGENTE),
+      existente?.NOMBRE_AGENTE,
+      existente?.SEGUNDO_NOMBRE_AGENTE,
+    )
+    const [apellido, segundoApellido] = reconciliarPar(
+      preserveText(getColFlexible(row, 'APELLIDO_AGENTE', ALIAS_APELLIDO), existente?.APELLIDO_AGENTE),
+      preserveText(getColFlexible(row, 'SEGUNDO_APELLIDO_AGENTE', ALIAS_SEGUNDO_APELLIDO), existente?.SEGUNDO_APELLIDO_AGENTE),
+      existente?.APELLIDO_AGENTE,
+      existente?.SEGUNDO_APELLIDO_AGENTE,
+    )
     const secretaria = preserveText(getCol(row, 'SECRETARIA'), existente?.SECRETARIA) || null
     const programa = preserveText(getCol(row, 'PROGRAMA'), existente?.PROGRAMA) || null
     const cargo = preserveText(getCol(row, 'CARGO'), existente?.CARGO) || null
@@ -223,7 +247,9 @@ export function analyzeDatosPersonales(
         kind: 'insert',
         dni,
         nombre,
+        segundoNombre,
         apellido,
+        segundoApellido,
         secretaria: secretaria ?? '',
         programa: programa ?? '',
         cargo: cargo ?? '',
@@ -243,26 +269,33 @@ export function analyzeDatosPersonales(
     const existenteActual = existente!
     const diffs: DiffField[] = []
 
-    const check = (campo: string, anterior: string, nuevo: string) => {
-      // Comparación semántica: null/'' son equivalentes para campos opcionales
-      const ant = anterior.trim()
-      const nvo = nuevo.trim()
-      if (ant !== nvo) {
-        diffs.push({ campo, anterior: ant, nuevo: nvo })
+    // La comparación es semántica (normStr), pero lo que se muestra y se
+    // guarda es el texto real: antes se mostraba "MONICADELVALLE" en vez de
+    // "MONICA DEL VALLE" porque se empujaba la clave normalizada al diff.
+    const check = (campo: string, anterior: string | null | undefined, nuevo: string | null | undefined) => {
+      // null/'' son equivalentes para campos opcionales
+      if (normStr(anterior) !== normStr(nuevo)) {
+        diffs.push({
+          campo,
+          anterior: String(anterior ?? '').trim() || '—',
+          nuevo: String(nuevo ?? '').trim() || '—',
+        })
       }
     }
 
-    check('NOMBRE_AGENTE', normStr(existenteActual.NOMBRE_AGENTE), normStr(nombre))
-    check('APELLIDO_AGENTE', normStr(existenteActual.APELLIDO_AGENTE), normStr(apellido))
+    check('NOMBRE_AGENTE', existenteActual.NOMBRE_AGENTE ?? '', nombre)
+    check('SEGUNDO_NOMBRE_AGENTE', existenteActual.SEGUNDO_NOMBRE_AGENTE ?? '', segundoNombre)
+    check('APELLIDO_AGENTE', existenteActual.APELLIDO_AGENTE ?? '', apellido)
+    check('SEGUNDO_APELLIDO_AGENTE', existenteActual.SEGUNDO_APELLIDO_AGENTE ?? '', segundoApellido)
     check('FECHA_NACIMIENTO', dateToStr(existenteActual.FECHA_NACIMIENTO), dateToStr(fechaNac))
-    check('SECRETARIA', normStr(existenteActual.SECRETARIA), normStr(secretaria))
-    check('PROGRAMA', normStr(existenteActual.PROGRAMA), normStr(programa))
-    check('CARGO', normStr(existenteActual.CARGO), normStr(cargo))
-    check('SEXO', normStr(existenteActual.SEXO), normStr(sexo))
+    check('SECRETARIA', existenteActual.SECRETARIA ?? '', secretaria)
+    check('PROGRAMA', existenteActual.PROGRAMA ?? '', programa)
+    check('CARGO', existenteActual.CARGO ?? '', cargo)
+    check('SEXO', existenteActual.SEXO ?? '', sexo)
     check('ESTADO_ACTIVO', String(existenteActual.ESTADO_ACTIVO), String(estadoActivo))
-    check('CUIL', normStr(existenteActual.CUIL), normStr(cuil))
-    check('NUMERO_TELEFONO', normStr(existenteActual.NUMERO_TELEFONO), normStr(telefono))
-    check('CORREO_ELECTRONICO', normStr(existenteActual.CORREO_ELECTRONICO), normStr(correo))
+    check('CUIL', existenteActual.CUIL ?? '', cuil)
+    check('NUMERO_TELEFONO', existenteActual.NUMERO_TELEFONO ?? '', telefono)
+    check('CORREO_ELECTRONICO', existenteActual.CORREO_ELECTRONICO ?? '', correo)
 
     // Comparar régimen (null vs null = sin cambio)
     const regAnterior = existenteActual.ID_REGIMEN_JUBILATORIO ?? null
@@ -283,12 +316,14 @@ export function analyzeDatosPersonales(
       actualizadas.push({
         kind: 'update',
         dni,
-        nombre: `${apellido} ${nombre}`.trim(),
+        nombre: componerNombreCompleto({ apellido, segundoApellido, nombre, segundoNombre }),
         apellido,
         diffs,
         payload: {
           NOMBRE_AGENTE: nombre,
+          SEGUNDO_NOMBRE_AGENTE: segundoNombre || null,
           APELLIDO_AGENTE: apellido,
+          SEGUNDO_APELLIDO_AGENTE: segundoApellido || null,
           FECHA_NACIMIENTO: fechaNac.toISOString(),
           SECRETARIA: secretaria,
           PROGRAMA: programa,

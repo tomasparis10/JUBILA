@@ -19,6 +19,10 @@ export interface JubilacionRecord {
   cuil: string
   dni: string
   apellidoNombres: string
+  nombre: string
+  segundoNombre: string
+  apellido: string
+  segundoApellido: string
   sexo: string
   estadoActivo: boolean
   trazabilidad: TrazabilidadEntry[]

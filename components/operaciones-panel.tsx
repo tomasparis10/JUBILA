@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { createAgente, searchAgentes, updateAgenteDatos, deleteAgente, recuperarAgente, getRegimenes, getRegimenDeAgente, type RegimenOption } from '@/app/actions/agentes'
 import { FormField, SelectField } from '@/components/form-field'
-import { formatCuil, extractDniFromCuil } from '@/lib/format-utils'
+import { formatCuil, extractDniFromCuil, composeFullName } from '@/lib/format-utils'
 import type { JubilacionRecord } from '@/lib/jubilaciones-data'
 import type { AnalysisResult, AnalyzeApiResponse, CommitApiResponse } from '@/lib/bulk-sync/types'
 
@@ -62,7 +62,9 @@ function AntiguedadField({ label, value, onChange }: { label: string; value: str
 function GestionAgentes({ esAdmin = false }: { esAdmin?: boolean }) {
   // ── Estado del formulario ────────────────────────────────────────────────
   const emptyForm = (): Partial<JubilacionRecord> => ({
-    cuil: '', dni: '', apellidoNombres: '', sexo: '', estadoActivo: true, telefono: '',
+    cuil: '', dni: '', apellidoNombres: '',
+    nombre: '', segundoNombre: '', apellido: '', segundoApellido: '',
+    sexo: '', estadoActivo: true, telefono: '',
     correo: '', fechaNacimiento: '', edadActual: '',
     programa: '', secretaria: '', cargo: '',
     antiguedadRecibo: '', antiguedadLicencias: '',
@@ -111,6 +113,18 @@ function GestionAgentes({ esAdmin = false }: { esAdmin?: boolean }) {
   const update = (field: keyof JubilacionRecord, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }))
 
+  /**
+   * Actualiza una de las 4 partes del nombre y recompone el nombre completo
+   * con el orden APELLIDO [2º APELLIDO] NOMBRE [2º NOMBRE].
+   */
+  const updateNombre = (
+    field: 'apellido' | 'segundoApellido' | 'nombre' | 'segundoNombre',
+    value: string,
+  ) => setForm((prev) => {
+    const next = { ...prev, [field]: value }
+    return { ...next, apellidoNombres: composeFullName(next) }
+  })
+
   const handleCuilChange = (raw: string) => {
     const cuil = formatCuil(raw)
     const dni = extractDniFromCuil(raw)
@@ -134,6 +148,10 @@ function GestionAgentes({ esAdmin = false }: { esAdmin?: boolean }) {
       cuil: agente.cuil,
       dni: agente.dni,
       apellidoNombres: agente.apellidoNombres,
+      nombre: agente.nombre,
+      segundoNombre: agente.segundoNombre,
+      apellido: agente.apellido,
+      segundoApellido: agente.segundoApellido,
       sexo: agente.sexo,
       estadoActivo: agente.estadoActivo,
       telefono: agente.telefono,
@@ -163,7 +181,8 @@ function GestionAgentes({ esAdmin = false }: { esAdmin?: boolean }) {
     setFormError(null)
     setFormSuccess(null)
     if (!form.dni) { setFormError('El DNI es obligatorio.'); return }
-    if (!form.apellidoNombres) { setFormError('El Apellido y Nombres son obligatorios.'); return }
+    if (!form.apellido?.trim()) { setFormError('El Apellido es obligatorio.'); return }
+    if (!form.nombre?.trim()) { setFormError('El Nombre es obligatorio.'); return }
     if (!form.sexo) { setFormError('Debe seleccionar el Sexo.'); return }
     if (!regimenId) { setFormError('Debe seleccionar el Régimen Jubilatorio.'); return }
 
@@ -186,6 +205,10 @@ function GestionAgentes({ esAdmin = false }: { esAdmin?: boolean }) {
           cuil: form.cuil ?? '',
           dni: form.dni ?? '',
           apellidoNombres: form.apellidoNombres ?? '',
+          nombre: form.nombre ?? '',
+          segundoNombre: form.segundoNombre ?? '',
+          apellido: form.apellido ?? '',
+          segundoApellido: form.segundoApellido ?? '',
           sexo: form.sexo ?? '',
           estadoActivo: form.estadoActivo ?? true,
           telefono: form.telefono ?? '',
@@ -258,35 +281,6 @@ function GestionAgentes({ esAdmin = false }: { esAdmin?: boolean }) {
     }
   }
 
-  // ── Eliminar (baja lógica) agente ─────────────────────────────────────────
-  const handleDeleteAgente = async (agente: JubilacionRecord) => {
-    if (!agente.agenteId) return
-    const confirmar = window.confirm(
-      `¿Está seguro que desea dar de baja al agente "${agente.apellidoNombres}" (DNI ${agente.dni ?? '—'})?\n\nLa información se conserva y puede recuperarse cargando el mismo DNI en "Agregar Nuevo Agente".`
-    )
-    if (!confirmar) return
-    setDeletingAgenteId(agente.agenteId)
-    setGridError(null)
-    setFormSuccess(null)
-    try {
-      const result = await deleteAgente(agente.agenteId)
-      if (result.ok) {
-        setGridResults((prev) => prev.filter((a) => a.agenteId !== agente.agenteId))
-        if (selectedGridId === agente.id) {
-          setSelectedGridId(null)
-          setEditingAgente(null)
-        }
-        setFormSuccess(`Agente "${agente.apellidoNombres}" dado de baja correctamente.`)
-      } else {
-        setGridError(result.error ?? 'Error al dar de baja el agente.')
-      }
-    } catch {
-      setGridError('Error inesperado al dar de baja el agente.')
-    } finally {
-      setDeletingAgenteId(null)
-    }
-  }
-
   // ── Búsqueda en la grilla ─────────────────────────────────────────────────
   const handleGridSearch = useCallback(async () => {
     const q = gridSearch.trim()
@@ -320,6 +314,35 @@ function GestionAgentes({ esAdmin = false }: { esAdmin?: boolean }) {
       })
     return () => { active = false }
   }, [])
+
+  // ── Eliminar (baja lógica) agente ─────────────────────────────────────────
+  const handleDeleteAgente = async (agente: JubilacionRecord) => {
+    if (!agente.agenteId) return
+    const confirmar = window.confirm(
+      `¿Está seguro que desea dar de baja al agente "${agente.apellidoNombres}" (DNI ${agente.dni ?? '—'})?\n\nLa información se conserva y puede recuperarse cargando el mismo DNI en "Agregar Nuevo Agente".`
+    )
+    if (!confirmar) return
+    setDeletingAgenteId(agente.agenteId)
+    setGridError(null)
+    setFormSuccess(null)
+    try {
+      const result = await deleteAgente(agente.agenteId)
+      if (result.ok) {
+        setGridResults((prev) => prev.filter((a) => a.agenteId !== agente.agenteId))
+        if (selectedGridId === agente.id) {
+          setSelectedGridId(null)
+          setEditingAgente(null)
+        }
+        setFormSuccess(`Agente "${agente.apellidoNombres}" dado de baja correctamente.`)
+      } else {
+        setGridError(result.error ?? 'Error al dar de baja el agente.')
+      }
+    } catch {
+      setGridError('Error inesperado al dar de baja el agente.')
+    } finally {
+      setDeletingAgenteId(null)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5" ref={formTopRef}>
@@ -394,11 +417,31 @@ function GestionAgentes({ esAdmin = false }: { esAdmin?: boolean }) {
             placeholder="Número de DNI"
           />
           <FormField
-            label="Apellido y Nombres"
-            value={form.apellidoNombres ?? ''}
-            onChange={(v) => update('apellidoNombres', v)}
-            placeholder="Apellido y Nombres"
-            className="col-span-2"
+            label="Apellido"
+            value={form.apellido ?? ''}
+            onChange={(v) => updateNombre('apellido', v)}
+            placeholder="Apellido"
+            mask="letters"
+          />
+          <FormField
+            label="2º Apellido"
+            value={form.segundoApellido ?? ''}
+            onChange={(v) => updateNombre('segundoApellido', v)}
+            placeholder="Opcional"
+            mask="letters"
+          />
+          <FormField
+            label="Nombre"
+            value={form.nombre ?? ''}
+            onChange={(v) => updateNombre('nombre', v)}
+            placeholder="Nombre"
+            mask="letters"
+          />
+          <FormField
+            label="2º Nombre"
+            value={form.segundoNombre ?? ''}
+            onChange={(v) => updateNombre('segundoNombre', v)}
+            placeholder="Opcional"
             mask="letters"
           />
           <SelectField
@@ -905,6 +948,24 @@ function ActualizacionMasiva() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const canAnalyze = dpFile && caFile && (flowState === 'idle' || flowState === 'ready' || flowState === 'error')
+
+  /**
+   * Vercel corta con 413 cualquier request cuyo body pase de 4,5 MB, y el
+   * export de Datos Personales con 32k agentes pesa 8,1 MB (+4,7 MB el de
+   * Carrera). Se comprime con gzip en el navegador: 8,1 MB → 1,2 MB, que sí
+   * entra. La función descomprime antes de parsear.
+   */
+  const comprimirParaEnvio = async (file: File): Promise<File> => {
+    if (typeof CompressionStream === 'undefined') return file
+    if (file.name.toLowerCase().endsWith('.gz')) return file
+    try {
+      const stream = file.stream().pipeThrough(new CompressionStream('gzip'))
+      const blob = await new Response(stream).blob()
+      return new File([blob], `${file.name}.gz`, { type: 'application/gzip' })
+    } catch {
+      return file
+    }
+  }
   const isLocked = flowState === 'analyzing' || flowState === 'committing'
 
   const handleDpFile = (f: File | null) => {
@@ -930,9 +991,11 @@ function ActualizacionMasiva() {
     setAnalysis(null)
 
     try {
+      const [dpEnviado, caEnviado] = await Promise.all([comprimirParaEnvio(dpFile), comprimirParaEnvio(caFile)])
+
       const form = new FormData()
-      form.append('datosPersonales', dpFile)
-      form.append('carreraAdministrativa', caFile)
+      form.append('datosPersonales', dpEnviado)
+      form.append('carreraAdministrativa', caEnviado)
 
       const res = await fetch('/api/bulk-sync/analyze', { method: 'POST', body: form })
       const data: AnalyzeApiResponse = await res.json()
@@ -945,8 +1008,14 @@ function ActualizacionMasiva() {
 
       setAnalysis(data.analysis)
       setFlowState('preview')
-    } catch {
-      setErrorMsg('Error inesperado al conectar con el servidor.')
+    } catch (err) {
+      // Si la función murió por timeout (o se cayó la red) la respuesta no llega
+      // como JSON: el catch genérico tapaba el motivo real.
+      const detalle = err instanceof Error ? ` (${err.message})` : ''
+      setErrorMsg(
+        `No se pudo completar la comunicación con el servidor${detalle}. ` +
+          'Si tarda varios minutos y vuelve a fallar, revisá los logs de la función en Vercel.',
+      )
       setFlowState('error')
     }
   }
@@ -973,8 +1042,9 @@ function ActualizacionMasiva() {
       setCommitResult(data)
       setFlowState('done')
       window.dispatchEvent(new Event('bulk-sync-completed'))
-    } catch {
-      setErrorMsg('Error inesperado al conectar con el servidor.')
+    } catch (err) {
+      const detalle = err instanceof Error ? ` (${err.message})` : ''
+      setErrorMsg(`No se pudo completar la comunicación con el servidor${detalle}.`)
       setFlowState('error')
     }
   }
@@ -1310,13 +1380,13 @@ function ActualizacionMasiva() {
 
           {/* Estado procesando */}
           {flowState === 'analyzing' && (
-            <button disabled className="flex items-center gap-2 px-5 py-2 rounded-lg bg-[#1e3a8a] opacity-60 cursor-not-allowed text-white text-sm font-semibold">
-              <Loader2 className="w-4 h-4 animate-spin" /> Analizando...
+            <button disabled className="flex items-center gap-2 px-5 py-2 rounded-lg bg-[#1e3a8a] opacity-60 cursor-not-allowed text-white text-sm font-semibold" title="Con un export completo (32.000 agentes) el análisis tarda de 1 a 3 minutos. No cierre la página.">
+              <Loader2 className="w-4 h-4 animate-spin" /> Analizando (puede tardar varios minutos, no cierre la página)...
             </button>
           )}
           {flowState === 'committing' && (
-            <button disabled className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 opacity-60 cursor-not-allowed text-white text-sm font-semibold">
-              <Loader2 className="w-4 h-4 animate-spin" /> Actualizando...
+            <button disabled className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 opacity-60 cursor-not-allowed text-white text-sm font-semibold" title="La actualización y el recálculo de derivados tardan varios minutos. No cierre la página.">
+              <Loader2 className="w-4 h-4 animate-spin" /> Actualizando (puede tardar varios minutos, no cierre la página)...
             </button>
           )}
         </div>
