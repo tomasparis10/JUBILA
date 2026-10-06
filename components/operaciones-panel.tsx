@@ -5,7 +5,7 @@ import {
   RefreshCw, UserCheck, AlertCircle, CheckCircle2,
   Loader2, Clock, Users, X, UserCircle, Save, Search, ArrowRight,
   FileText, Database, Upload, ChevronDown, ChevronUp, ShieldAlert,
-  Pencil, UserCog, Trash2,
+  Pencil, UserCog, Trash2, Download,
 } from 'lucide-react'
 import { createAgente, searchAgentes, updateAgenteDatos, deleteAgente, recuperarAgente, getRegimenes, getRegimenDeAgente, type RegimenOption } from '@/app/actions/agentes'
 import { FormField, SelectField } from '@/components/form-field'
@@ -955,6 +955,65 @@ function ActualizacionMasiva() {
    * Carrera). Se comprime con gzip en el navegador: 8,1 MB → 1,2 MB, que sí
    * entra. La función descomprime antes de parsear.
    */
+  /** Escapa un valor para CSV con separador ';' (el que usa Excel en es-AR). */
+  const csvCampo = (v: unknown): string => {
+    const s = String(v ?? '')
+    return /[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+
+  /**
+   * Exporta el análisis a CSV. Sirve para comparar los agentes pendientes
+   * entre SQL y Supabase: se abre en Excel, se ordena por DNI y se cruzan las
+   * dos columnas con BUSCARVLOOK o un simple filtro.
+   */
+  const descargarAnalisis = (res: AnalysisResult) => {
+    const dp = res.datosPersonales
+    const ca = res.carreraAdministrativa
+    const lineas: string[] = []
+
+    lineas.push(csvCampo('DNI') + ';ORIGEN;TIPO;CAMPOS;VALOR ANTERIOR;VALOR NUEVO;DETALLE')
+    for (const n of dp.nuevas) {
+      lineas.push([csvCampo(n.dni), 'Datos Personales', 'nuevo', '', '', '', csvCampo(`${n.nombre} ${n.apellido}`)].join(';'))
+    }
+    for (const a of dp.actualizadas) {
+      if (a.diffs.length === 0) continue
+      lineas.push([csvCampo(a.dni), 'Datos Personales', 'actualizado', csvCampo(a.diffs.map((x) => x.campo).join('|')), '', '', csvCampo(a.diffs.map((x) => `${x.campo}: "${x.anterior}" -> "${x.nuevo}"`).join(' | '))].join(';'))
+    }
+    for (const e of dp.errores) {
+      lineas.push(['', 'Datos Personales', 'error', csvCampo(e.campo), '', '', csvCampo(`fila ${e.rowIndex}: ${e.descripcion} (valor "${e.valor}")`)].join(';'))
+    }
+
+    lineas.push('')
+    lineas.push(csvCampo('DNI') + ';ORIGEN;TIPO;CAMPOS;FECHA ALTA ANTERIOR;FECHA ALTA NUEVA;DETALLE')
+    for (const n of ca.nuevas) {
+      lineas.push([csvCampo(n.dni), 'Carrera Administrativa', 'nuevo', '', '', '', csvCampo(`alta ${n.fechaAltaStr}`)].join(';'))
+    }
+    for (const a of ca.actualizadas) {
+      if (a.diffs.length === 0) continue
+      lineas.push([csvCampo(a.dni), 'Carrera Administrativa', 'actualizado', csvCampo(a.diffs.map((x) => x.campo).join('|')), csvCampo(a.fechaAltaStr), '', csvCampo(a.diffs.map((x) => `${x.campo}: "${x.anterior}" -> "${x.nuevo}"`).join(' | '))].join(';'))
+    }
+    for (const e of ca.noEncontradas) {
+      lineas.push(['', 'Carrera Administrativa', 'no encontrado', '', '', '', csvCampo(`fila ${e.rowIndex}: ${e.descripcion} (valor "${e.valor}")`)].join(';'))
+    }
+
+    lineas.push('')
+    lineas.push(csvCampo('ORIGEN') + ';NUEVOS;A ACTUALIZAR;SIN CAMBIOS;OMITIDAS/IGNORADAS;ERRORES')
+    lineas.push([csvCampo('Datos Personales'), dp.nuevas.length, dp.actualizadas.length, dp.sinCambios, dp.omitidas, dp.errores.length + dp.sinDni.length].join(';'))
+    lineas.push([csvCampo('Carrera Administrativa'), ca.nuevas.length, ca.actualizadas.length, ca.sinCambios, ca.ignoradas, ca.errores.length + ca.noEncontradas.length].join(';'))
+
+    // BOM para que Excel abra los acentos bien.
+    const blob = new Blob(['\uFEFF' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    a.href = url
+    a.download = `analisis-masivo-${stamp}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   const comprimirParaEnvio = async (file: File): Promise<File> => {
     if (typeof CompressionStream === 'undefined') return file
     if (file.name.toLowerCase().endsWith('.gz')) return file
@@ -1147,6 +1206,20 @@ function ActualizacionMasiva() {
               </div>
             </div>
           )}
+
+          {/* Totales leídos del archivo: si dos instalaciones dan números
+              distintos con el mismo Excel, la diferencia está en cuántas filas
+              se leyeron (headers en la fila 2, filas de total, etc). */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
+            <span>
+              <span className="font-bold text-slate-800">Datos Personales:</span>{' '}
+              {dp.nuevas.length + dp.actualizadas.length + dp.sinCambios + dp.omitidas} filas leídas
+            </span>
+            <span>
+              <span className="font-bold text-slate-800">Carrera Administrativa:</span>{' '}
+              {ca.nuevas.length + ca.actualizadas.length + ca.sinCambios + ca.ignoradas + ca.noEncontradas.length} filas leídas
+            </span>
+          </div>
 
           {/* ── Datos Personales preview ── */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1351,6 +1424,20 @@ function ActualizacionMasiva() {
               className="flex items-center gap-2 px-5 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#172554] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition shadow-sm"
             >
               <Search className="w-4 h-4" /> Analizar archivos
+            </button>
+          )}
+
+          {/* Descargar el análisis: sirve para comparar qué agentes cambian
+              entre dos instalaciones (SQL vs Supabase) sin leer 28k filas
+              en pantalla. Un CSV por tipo, con los valores anterior y nuevo. */}
+          {flowState === 'preview' && analysis && (
+            <button
+              onClick={() => descargarAnalisis(analysis)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm font-semibold transition"
+              title="Descargar el detalle de los cambios para poder compararlo entre instalaciones"
+            >
+              <Download className="w-4 h-4" />
+              Descargar análisis (CSV)
             </button>
           )}
 
