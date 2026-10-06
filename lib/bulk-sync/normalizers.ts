@@ -445,18 +445,33 @@ export function dateToStr(d: Date | null | undefined): string {
 }
 
 /**
- * Normaliza un string para comparación semántica:
- * trim + colapso de espacios + uppercase.
+ * Marcador interno para conservar la Ñ a través de la eliminación de acentos y
+ * del filtro ASCII. Es un carácter de área privada: no aparece en ningún archivo
+ * de datos ni se puede escribir a mano, así que no puede chocar con el texto real.
+ */
+const MARCA_ENIE = '\uE000'
+
+/**
+ * Normaliza un string para comparación semántica.
+ *
+ * Se conserva la Ñ: es una letra del alfabeto español, no un acento de la N.
+ * Con la versión anterior removeAccents() convertía Ñ en N, así que un agente
+ * que en la base quedó sin Ñ (imports previos que leían los exportes de Raet
+ * como UTF-8 y se comían el byte) se comparaba igual que el Excel y quedaba
+ * para siempre en "sin cambios", sin forma de corregirse nunca. El payload
+ * sigue conservando el texto limpio: este valor es solo la clave de comparación.
  */
 export function normStr(v: unknown): string {
-  // La comparación no debe depender de la tabla de caracteres del XLS ni de
-  // cómo fue guardado el valor anterior en la DB. Los caracteres no ASCII que
-  // no pudieron repararse se excluyen solo de la clave de comparación; el
-  // payload conserva el texto limpio para no alterar datos visibles.
-  return removeAccents(cleanImportedText(v))
-    .replace(/[^\x00-\x7F]/g, '')
+  // NFC antes de limpiar: cleanImportedText recorta los acentos combinados
+  // (U+0300–U+036F), así que "españa" descompuesta (n + U+0303) perdería la Ñ
+  // antes de poder componerla y se compararía distinto que "ESPAÑA".
+  const conEnie = cleanImportedText(String(v ?? '').normalize('NFC'))
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
+    .replace(/Ñ/g, MARCA_ENIE)
+  return removeAccents(conEnie)
+    .replace(/[^\x00-\x7F\uE000]/g, '')
+    .replace(/[^A-Z0-9\uE000]/g, '')
+    .replace(/\uE000/g, 'Ñ')
 }
 
 /**
