@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Search, UserCircle, Pencil, Save, FileText, Upload,
   Printer, Send, Archive, CheckSquare, GitBranch, X, CheckCircle2,
-  Loader2, AlertCircle, AlertTriangle, MessageSquare,
+  Loader2, AlertCircle, AlertTriangle, MessageSquare, Users,
 } from 'lucide-react'
 import {
   CAUSA_BAJA_OPTIONS,
@@ -15,7 +15,7 @@ import {
 } from '@/lib/jubilaciones-data'
 import { FormField, SelectField, SectionCard } from '@/components/form-field'
 import { formatExpediente, formatDate, formatCuil, extractDniFromCuil, getDateValidationError, isDateRangeInvalid, composeFullName, splitNombreCompleto } from '@/lib/format-utils'
-import { searchAgentes, updateJubila, createJubila, createAgente, recuperarAgente, getLastRecord } from '@/app/actions/agentes'
+import { buscarAgentesParaGrilla, searchAgentes, updateJubila, createJubila, createAgente, recuperarAgente, getLastRecord } from '@/app/actions/agentes'
 import { GestorArchivos } from '@/components/gestor-archivos'
 import { PavAceptacionRechazo, PavPaseSecretaria, PavSolicitud, PavPaseArchivo, PavDesistido, PaseReparticion, RenunciaRazonesParticulares, InvalidesProvisoria, RenunciaForm, RenunciaProvisoriaForm } from '@/components/pdf/PAVForms'
 
@@ -210,6 +210,13 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
   const [previousSelectedId, setPreviousSelectedId]     = useState<string | null>(null)
   const [initialSnapshot, setInitialSnapshot]           = useState<JubilacionRecord | null>(null)
 
+  // ── Grilla de resultados del buscador ────────────────────────────────────
+  // gridIds mantiene el ORDEN de la grilla (exactos → prefijo → contiene);
+  // los registros quedan en `records` aunque no estén en los resultados, para
+  // que el agente cargado siga visible abajo hasta elegir otra fila.
+  const [gridIds, setGridIds] = useState<string[]>([])
+  const [showGrid, setShowGrid] = useState(false)
+
   // ── Loading / error states ───────────────────────────────────────────────
   const [loadingSearch, setLoadingSearch] = useState(false)
   const [loadingRecord, setLoadingRecord] = useState(false)
@@ -257,13 +264,8 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
     setLoadingSearch(true)
     setGlobalError(null)
     try {
-      const results = await searchAgentes(q)
-      if (results.length >= 1) {
-        setRecords(results)
-        handleSelectId(results[0].id)
-      } else {
-        setNotFoundPopup(true)
-      }
+      const results = await buscarAgentesParaGrilla(q)
+      aplicarResultados(results)
     } catch (err) {
       setGlobalError('Error al buscar en la base de datos. Verifique la conexión.')
     } finally {
@@ -280,15 +282,10 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       setLoadingSearch(true)
       setGlobalError(null)
       try {
-        const results = await searchAgentes(externalDni!)
+        const results = await buscarAgentesParaGrilla(externalDni!)
         if (!cancelled) {
-          if (results.length >= 1) {
-            setSearch(externalDni!)
-            setRecords(results)
-            handleSelectId(results[0].id)
-          } else {
-            setNotFoundPopup(true)
-          }
+          setSearch(externalDni!)
+          aplicarResultados(results)
         }
       } catch {
         if (!cancelled) setGlobalError('Error al buscar en la base de datos. Verifique la conexión.')
@@ -373,6 +370,38 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
       50
     )
   }
+
+  /**
+   * Aplica el resultado de una búsqueda del panel principal:
+   * - 0 coincidencias → popup "sin resultados", no toca nada.
+   * - 1 coincidencia  → carga directa en los bloques de abajo, sin grilla.
+   * - N coincidencias → guarda todo en `records` (merge, para no perder el
+   *    agente cargado) y muestra la grilla; NO cambia la selección hasta que
+   *    se elija una fila.
+   */
+  const aplicarResultados = useCallback((results: JubilacionRecord[]) => {
+    if (results.length === 0) {
+      setNotFoundPopup(true)
+      return
+    }
+
+    // Merge por id: el registro que sigue cargado en los bloques debe seguir
+    // disponible aunque no esté dentro de los resultados de esta búsqueda.
+    setRecords((prev) => {
+      const porId = new Map(prev.map((r) => [r.id, r]))
+      for (const r of results) porId.set(r.id, r)
+      return [...porId.values()]
+    })
+
+    if (results.length === 1) {
+      setShowGrid(false)
+      handleSelectId(results[0].id)
+    } else {
+      setGridIds(results.map((r) => r.id))
+      setShowGrid(true)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleNew = () => {
     if (editing) return
@@ -1247,6 +1276,59 @@ if (!selected.programa?.trim()) missing.push('• Programa')
               {loadingSearch ? 'Buscando...' : 'Buscar'}
             </button>
           </div>
+
+          {/* ── Grilla de coincidencias ─────────────────────────────────────── */}
+          {showGrid && gridIds.length > 1 && (
+            <div className="mb-6 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+                <Users className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-xs font-bold text-[#1e3a8a] uppercase tracking-widest">
+                  {gridIds.length} coincidencia{gridIds.length !== 1 ? 's' : ''}
+                </span>
+                <span className="ml-auto">
+                  <button
+                    onClick={() => setShowGrid(false)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-500 border border-slate-200 bg-white hover:bg-slate-100 transition"
+                    title="Cerrar la lista de resultados"
+                  >
+                    <X className="w-3 h-3" />
+                    Cerrar
+                  </button>
+                </span>
+              </div>
+              <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-100 z-10">
+                    <tr>
+                      <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider w-28">DNI</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider">Apellido y Nombres</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-slate-600 uppercase tracking-wider">Programa</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {gridIds.map((id) => {
+                      const r = records.find((rec) => rec.id === id)
+                      if (!r) return null
+                      const isSelected = selectedId === id
+                      return (
+                        <tr
+                          key={id}
+                          onClick={() => handleSelectId(id)}
+                          className={`cursor-pointer transition ${
+                            isSelected ? 'bg-blue-50 border-l-2 border-l-[#1e3a8a]' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <td className="px-3 py-2.5 font-mono text-slate-600">{r.dni || '—'}</td>
+                          <td className="px-3 py-2.5 font-semibold text-slate-800">{r.apellidoNombres || '—'}</td>
+                          <td className="px-3 py-2.5 text-slate-500 truncate max-w-[240px]">{r.programa || '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* ── Selected record detail ───────────────────────────────────────── */}
           {selected && (
