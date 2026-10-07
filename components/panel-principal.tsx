@@ -360,6 +360,7 @@ export default function PanelPrincipal({ externalDni, onExternalDniConsumed }: P
   // ── Select record (local, ya cargado en records[]) ─────────────────────
   const handleSelectId = (id: string) => {
     setSelectedId(id)
+    setShowGrid(false)
     setEditing(false)
     setIsCreatingNew(false)
     setInitialSnapshot(null)
