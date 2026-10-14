@@ -38,12 +38,12 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 // Filas por sentencia SQL en la actualización masiva.
-// SQL Server limita a 2100 parámetros por sentencia:
-//   - DP: 13 columnas + 1 parámetro → 150 filas = 1951 parámetros
-//   - CA: 3 columnas → 450 filas = 1350 parámetros
+// SQL Server limita a 2100 parámetros por sentencia. Cada fila de DP usa
+// 15 parámetros, más el usuario de modificación compartido por sentencia:
+// 130 * 15 + 1 = 1951, con margen bajo el límite. CA usa 3 por fila.
 // Cuantas menos sentencias, menos round-trips contra la DB (la transacción
 // interactiva de Prisma serializa todas las operaciones en UNA sola conexión).
-const FILAS_SQL_DP = 150
+const FILAS_SQL_DP = 130
 const FILAS_SQL_CA = 450
 
 // Concurrencia acotada para el recálculo de derivados (post-commit).
