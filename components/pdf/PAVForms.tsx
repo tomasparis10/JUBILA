@@ -64,6 +64,9 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     lineHeight: 1.45,
   },
+  paragraph: {
+    textIndent: 40,
+  },
   bold: {
     fontFamily: 'Helvetica-Bold',
   },
@@ -128,7 +131,7 @@ export const PavAceptacionRechazo = ({ data }: { data: PAVData }) => (
       <View style={styles.boxBordered}>
         <Text style={styles.boxTitle}>* PARA USO EXCLUSIVO DE LA AUTORIDAD SUPERIOR:</Text>
 
-        <Text style={[styles.bodyText, { marginTop: 12 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { marginTop: 12 }]}>
           Respecto a la &quot;Solicitud de Acogimiento de la Pasividad Anticipada Voluntaria&quot; de foja 1, del Agente:{' '}
           <Text style={styles.bold}>{data.nombreCompleto}</Text> DNI Nº <Text style={styles.bold}>{data.dni}</Text>
         </Text>
@@ -204,7 +207,7 @@ export const PavPaseSecretaria = ({ data }: { data: PAVData }) => (
       </View>
 
       {/* Párrafo 1 */}
-      <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+      <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
         Atento a la solicitud de Pasividad Anticipada Voluntaria presentada por el Agente{' '}
         <Text style={styles.bold}>{data.nombreCompleto}</Text> DNI N°{' '}
         <Text style={styles.bold}>{data.dni}</Text> cargo{' '}
@@ -218,12 +221,12 @@ export const PavPaseSecretaria = ({ data }: { data: PAVData }) => (
       </Text>
 
       {/* Párrafo 2 */}
-      <Text style={[styles.bodyText, { marginTop: 18, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+      <Text style={[styles.bodyText, styles.paragraph, { marginTop: 18, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
         Que, a los fines de la prosecución del trámite, corresponde REMITIR las presentes actuaciones a la DIRECCION GENERAL DE COORDINACIÓN Y SUMARIOS, a efectos de que se informe si el agente detallado ut supra registra sumario administrativo pendiente.
       </Text>
 
       {/* Párrafo 3 */}
-      <Text style={[styles.bodyText, { marginTop: 18, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+      <Text style={[styles.bodyText, styles.paragraph, { marginTop: 18, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
         Cumplido lo requerido precedentemente, deberán remitirse las actuaciones a{' '}
         <Text style={styles.bold}>{data.secretaria || 'SECRETARIA'}</Text> a los fines de que se complete debidamente el formulario obrante a fs. 02 por la autoridad a cargo, requisito indispensable para la continuidad del trámite.
       </Text>
@@ -281,11 +284,11 @@ export const PavSolicitud = ({ data }: { data: PAVData }) => {
         </View>
 
         {/* Párrafos solicitud */}
-        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 14 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 14 }]}>
           Por el presente manifiesto mi decisión de acogerme al Régimen de Pasividad Anticipada Voluntaria, en los términos del Art.29 de la Ley Nº 8836 y su reglamentación, los que expresamente manifiesto conocer y aceptar.
         </Text>
 
-        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 22 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 22 }]}>
           De ser aceptada la presente solicitud por la autoridad competente, se me notificará para la firma del acuerdo respectivo, cuya suscripción quedará supeditada a mi conformidad con su contenido, para su posterior homologación por la autoridad laboral.
         </Text>
 
@@ -371,7 +374,7 @@ export const PavPaseArchivo = ({ data }: { data: PAVData }) => {
         </Text>
 
         {/* Párrafo principal */}
-        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
           Atento a lo manifestado por el agente{' '}
           <Text style={styles.bold}>{data.nombreCompleto}</Text> -{' '}
           <Text style={styles.bold}>{data.dni}</Text>, PASE las presentes actuaciones a la SUBDIRECCION DE ATENCION PRESENCIAL para su ARCHIVO.
@@ -413,13 +416,13 @@ export const PavDesistido = ({ data }: { data: PAVData }) => {
         </Text>
 
         {/* Párrafo de desistimiento */}
-        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 18 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 18 }]}>
           Por medio del presente me dirijo a Ud. a los efectos de manifestar mi voluntad expresa de DESISTIR del trámite de Pasividad Anticipada Voluntaria (PAV), oportunamente iniciado mediante el Expediente N.º{' '}
           <Text style={styles.bold}>{data.nroExpPasividad || ''}</Text>, solicitando asimismo el archivo de las presentes actuaciones.
         </Text>
 
         {/* Despedida */}
-        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 30 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 30 }]}>
           Sin otro particular, saludo a Ud. atentamente.
         </Text>
 
@@ -483,7 +486,7 @@ export const PaseReparticion = ({ data }: { data: PAVData }) => {
         </Text>
 
         {/* Párrafo principal con datos del agente */}
-        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 18 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 18 }]}>
           <Text style={styles.bold}>{data.nombreCompleto}</Text> Cuil   N°   {<Text style={styles.bold}>{data.cuil || ''}</Text>} Cargo {<Text style={styles.bold}>{data.cargo || ''}</Text>} dependiente de la {<Text style={styles.bold}>{data.programa || ''}</Text>} para acogerse a los beneficios de la NOTIF.CED. o iniciar JUB. aun sin JNR. a partir de la fecha {<Text style={styles.bold}>{data.fBaja || ''}</Text>}, conforme a la que fuera otorgada por Resolución N° {<Text style={styles.bold}>{data.nroResRenCaja || ''}</Text>}, la que se tramitó por Expte. N° {<Text style={styles.bold}>{data.jNroExpCaja || ''}</Text>} de la Caja de Jubilaciones, Pensiones y Retiros de Córdoba.
         </Text>
 
@@ -493,17 +496,17 @@ export const PaseReparticion = ({ data }: { data: PAVData }) => {
         </Text>
 
         {/* Punto 1 */}
-        <Text style={[styles.bodyText, { marginTop: 10, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { marginTop: 10, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
           1)  Que la renuncia se encuadra en las disposiciones del Art. 40º y 41º de la Ordenanza 7244/80 (Decreto Reglamentario Nº 15975-A-82).
         </Text>
 
         {/* Punto 2 */}
-        <Text style={[styles.bodyText, { marginTop: 12, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { marginTop: 12, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
           2)  Se sugiere, al momento del dictado de la Resolución correspondiente, que disponga la Baja del agente, se exprese que: &quot;Por la Subsecretaría de Capital Humano se procederá al pago de la liquidación final del agente en cuestión&quot;.
         </Text>
 
         {/* Párrafo final */}
-        <Text style={[styles.bodyText, { marginTop: 14, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { marginTop: 14, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
           Que la renuncia corresponde aceptarla a partir de la fecha mencionada ut supra y en el estado de las presentes actuaciones PASEN a la Dirección General de ART y Control Legal para Control Técnico de legalidad.
         </Text>
 
@@ -546,7 +549,7 @@ export const RenunciaRazonesParticulares = ({ data }: { data: PAVData }) => {
         </View>
 
         {/* Párrafo de renuncia */}
-        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 18 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 18 }]}>
           Atento a la Renuncia por Razones Particulares presentada por el Agente{' '}
           <Text style={styles.bold}>{data.nombreCompleto}</Text>, CUIL Nº:{' '}
           <Text style={styles.bold}>{data.cuil || ''}</Text>, CARGO:{' '}
@@ -561,17 +564,17 @@ export const RenunciaRazonesParticulares = ({ data }: { data: PAVData }) => {
         </Text>
 
         {/* Punto 1 */}
-        <Text style={[styles.bodyText, { marginTop: 10, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { marginTop: 10, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
           1)  Que la renuncia se encuadra en las disposiciones del Art. 40º y 41º de la Ordenanza 7244/80 (Decreto Reglamentario Nº 15975-A-82).
         </Text>
 
         {/* Punto 2 */}
-        <Text style={[styles.bodyText, { marginTop: 12, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { marginTop: 12, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
           2)  Se sugiere, al momento del dictado de la Resolución correspondiente, que disponga la Baja del agente, se exprese que: &quot;Por la Subsecretaría de Capital Humano se procederá al pago de la liquidación final del agente en cuestión&quot;.
         </Text>
 
         {/* Párrafo final */}
-        <Text style={[styles.bodyText, { marginTop: 14, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { marginTop: 14, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
           Que la renuncia corresponde aceptarla a partir de la fecha mencionada ut supra y en el estado de las presentes actuaciones PASEN las mismas al Dirección General de ART y Control Legal para Control Técnico de legalidad.
         </Text>
 
@@ -638,7 +641,7 @@ const RenunciaTemplate = ({ data, provisoria = false }: { data: PAVData; proviso
         {/* Párrafo principal */}
         <Text style={{
           position: 'absolute', left: 58.4, top: bTop(222.0, 11), width: 486.8,
-          fontSize: 11, lineHeight: provisoria ? 1.65 : 1.84, textAlign: 'justify',
+          fontSize: 11, lineHeight: provisoria ? 1.65 : 1.84, textAlign: 'justify', textIndent: 40,
         }}>
           Quien suscribe <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.nombreCompleto}</Text>, M.I.:{' '}
           <Text style={{ fontFamily: 'Helvetica-Bold' }}>{data.dni || ''}</Text>, Cargo:{' '}
@@ -736,7 +739,7 @@ export const InvalidesProvisoria = ({ data }: { data: PAVData }) => {
         </View>
 
         {/* Párrafo de renuncia */}
-        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 14 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 14 }]}>
           Atento a la renuncia presentada por el Agente{' '}
           <Text style={styles.bold}>{data.nombreCompleto}</Text>, CUIL Nº:{' '}
           <Text style={styles.bold}>{data.cuil || ''}</Text>, CARGO:{' '}
@@ -745,7 +748,7 @@ export const InvalidesProvisoria = ({ data }: { data: PAVData }) => {
         </Text>
 
         {/* Párrafo resolución caja */}
-        <Text style={[styles.bodyText, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 14 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { textAlign: 'justify', fontSize: 10, lineHeight: 1.55, marginBottom: 14 }]}>
           Que mediante Resolución Serie &quot;A&quot; Nº:{' '}
           <Text style={styles.bold}>{data.nroResRenCaja || ''}</Text>, de fecha 27 de julio de 2026 dictada por la Caja de Jubilaciones, Pensiones y Retiros de Córdoba mediante Expediente Nº J-{' '}
           <Text style={styles.bold}>{data.jNroExpCaja || ''}</Text>, deberá aceptarse la RENUNCIA a los fines de acogerse al Beneficio de la JUBILACIÓN POR INVALIDEZ EN FORMA PROVISORIA a partir del{' '}
@@ -759,12 +762,12 @@ export const InvalidesProvisoria = ({ data }: { data: PAVData }) => {
         </Text>
 
         {/* Punto 1 */}
-        <Text style={[styles.bodyText, { marginTop: 10, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { marginTop: 10, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
           Que la renuncia se encuadra en las disposiciones del Art. 40º y 41º de la Ordenanza 7244/80 (Decreto Reglamentario Nº 15975-A-82).
         </Text>
 
         {/* Párrafo final */}
-        <Text style={[styles.bodyText, { marginTop: 14, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
+        <Text style={[styles.bodyText, styles.paragraph, { marginTop: 14, textAlign: 'justify', fontSize: 10, lineHeight: 1.55 }]}>
           Que la renuncia corresponde aceptarla a partir de la fecha mencionada ut supra y en el estado de las presentes actuaciones PASEN al Dirección General de ART y Control Legal para Control Técnico de legalidad.
         </Text>
 
