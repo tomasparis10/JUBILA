@@ -121,8 +121,7 @@ export default function GestionUsuarios() {
     <div className="p-6">
       <h1 className="text-xl font-bold text-[#1e3a8a] mb-1">Gestión de Usuarios</h1>
       <p className="text-sm text-slate-500 mb-6">
-        Administración de accesos. Cada usuario tiene un único rol: <span className="font-semibold">ADMIN</span> (acceso total) o{' '}
-        <span className="font-semibold">JUBILA</span> (sin carga masiva).
+        Administración de usuarios y roles del sistema JUBILA.
       </p>
 
       {mensaje && (

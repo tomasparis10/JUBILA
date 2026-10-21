@@ -152,8 +152,10 @@ model USUARIO {
   NOMBRE_USUARIO                              String                @unique(map: "UQ__USUARIO__1E139900200EE1AC") @db.VarChar(255)
   CONTRASENA_USUARIO                          String                @db.VarChar(255)
   DEBE_CAMBIAR_CONTRASENA                     Boolean               @default(true)
-  // Rol único por usuario: 'ADMIN' (todo) o 'JUBILA' (sin carga masiva)
+  // Rol administrativo del sistema; los accesos a los sistemas se controlan con sus indicadores.
   ROL                                         String                @default("JUBILA") @db.VarChar(20)
+  JUBILA                                      Boolean               @default(true, map: "DF_USUARIO_JUBILA")
+  RETENCIONES                                 Boolean               @default(false, map: "DF_USUARIO_RETENCIONES")
   ARCHIVO_JUBILACION                          ARCHIVO_JUBILACION[]                 @relation("ARCHIVO_JUBILACION_USUARIO_SUBIDA")
   ARCHIVO_JUBILACION_USUARIO_ELIMINACION     ARCHIVO_JUBILACION[]                 @relation("ARCHIVO_JUBILACION_USUARIO_ELIMINACION")
   DATOS_PERSONALES_AGENTE_JUBILA              DATOS_PERSONALES_AGENTE_JUBILA[]

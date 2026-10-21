@@ -83,6 +83,7 @@ export async function crearUsuario(
         CONTRASENA_USUARIO: hash,
         DEBE_CAMBIAR_CONTRASENA: true,
         ROL: (rol as RolUsuario).toUpperCase() === 'ADMIN' ? 'ADMIN' : 'JUBILA',
+        JUBILA: true,
       },
     })
     return { ok: true }

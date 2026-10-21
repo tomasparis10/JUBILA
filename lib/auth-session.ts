@@ -58,6 +58,7 @@ export interface AuthenticatedSession {
   username: string
   role: string
   mustChangePassword: boolean
+  jubila: boolean
 }
 
 export async function getAuthenticatedSession(): Promise<AuthenticatedSession | null> {
@@ -89,11 +90,13 @@ export async function getAuthenticatedSession(): Promise<AuthenticatedSession | 
     username: session.USUARIO.NOMBRE_USUARIO,
     role: session.USUARIO.ROL,
     mustChangePassword: session.USUARIO.DEBE_CAMBIAR_CONTRASENA,
+    jubila: session.USUARIO.JUBILA,
   }
 }
 
 export async function requireAuthenticatedSession(): Promise<AuthenticatedSession> {
   const session = await getAuthenticatedSession()
   if (!session) throw new Error('Sesión inválida o vencida. Ingrese nuevamente.')
+  if (!session.jubila) throw new Error('El usuario no tiene habilitado el acceso a JUBILA.')
   return session
 }

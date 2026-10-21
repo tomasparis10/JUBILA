@@ -70,7 +70,7 @@ function nowStr(): string {
 
 export async function POST(request: NextRequest): Promise<NextResponse<CommitApiResponse>> {
   const session = await getAuthenticatedSession()
-  if (!session) {
+  if (!session || !session.jubila) {
     return NextResponse.json({ ok: false, error: 'Sesión inválida o vencida.' }, { status: 401 })
   }
   if (session.role !== 'ADMIN') {

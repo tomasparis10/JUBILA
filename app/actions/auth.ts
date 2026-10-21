@@ -21,6 +21,7 @@ export interface LoginResult {
   userId?: number
   role?: string
   mustChangePassword?: boolean
+  jubila?: boolean
   error?: string
 }
 
@@ -67,6 +68,9 @@ export async function loginUsuario(
       recordLoginFailure(username, clientAddress)
       return { ok: false, error: 'Usuario o contraseña incorrectos.' }
     }
+    if (!usuario.JUBILA) {
+      return { ok: false, error: 'Este usuario no tiene habilitado el acceso a JUBILA.' }
+    }
 
     // Compatibilidad de una sola vez para usuarios creados manualmente en SQL.
     // La contraseña se reemplaza por un hash antes de finalizar el login.
@@ -95,6 +99,7 @@ export async function loginUsuario(
       userId: usuario.ID_USUARIO,
       role: usuario.ROL,
       mustChangePassword: usuario.DEBE_CAMBIAR_CONTRASENA || !tieneHashBcrypt,
+      jubila: usuario.JUBILA,
     }
   } catch (error) {
     const errorId = randomUUID()
@@ -109,7 +114,7 @@ export async function changePassword(
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const session = await getAuthenticatedSession()
-    if (!session) return { ok: false, error: 'Sesión inválida o vencida.' }
+    if (!session || !session.jubila) return { ok: false, error: 'Sesión inválida o sin acceso a JUBILA.' }
     if (newPassword.length < 5 || newPassword.length > 25) {
       return { ok: false, error: 'La nueva contraseña debe tener entre 5 y 25 caracteres.' }
     }
@@ -155,7 +160,7 @@ export async function logoutUsuario(): Promise<void> {
 export async function getCurrentSession(): Promise<LoginResult> {
   try {
     const session = await getAuthenticatedSession()
-    if (!session) {
+    if (!session || !session.jubila) {
       await clearSessionCookie()
       return { ok: false }
     }
@@ -165,6 +170,7 @@ export async function getCurrentSession(): Promise<LoginResult> {
       userId: session.userId,
       role: session.role,
       mustChangePassword: session.mustChangePassword,
+      jubila: session.jubila,
     }
   } catch (error) {
     logServerError('[getCurrentSession] Error:', error)

@@ -39,7 +39,8 @@ function codificarRfc5987(valor: string): string {
 
 /** Entrega solo archivos reconocidos que pertenezcan a un JUBILA activo. */
 export async function GET(request: NextRequest) {
-  if (!await getAuthenticatedSession()) {
+  const session = await getAuthenticatedSession()
+  if (!session || !session.jubila) {
     return NextResponse.json({ error: 'No autorizado.' }, { status: 401 })
   }
 
