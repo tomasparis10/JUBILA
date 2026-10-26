@@ -33,18 +33,19 @@ export async function listUsuarios(): Promise<UsuarioListado[]> {
   try {
     await requireAdmin()
     const usuarios = await prisma.uSUARIO.findMany({
+      where: { JUBILA: true },
       orderBy: { NOMBRE_USUARIO: 'asc' },
       select: {
         ID_USUARIO: true,
         NOMBRE_USUARIO: true,
-        ROL: true,
         DEBE_CAMBIAR_CONTRASENA: true,
+        ROL_JUBILA: { select: { NOMBRE_ROL: true } },
       },
     })
     return usuarios.map((u) => ({
       id: u.ID_USUARIO,
       nombreUsuario: u.NOMBRE_USUARIO,
-      rol: u.ROL,
+      rol: u.ROL_JUBILA?.NOMBRE_ROL ?? '',
       debeCambiarContrasena: u.DEBE_CAMBIAR_CONTRASENA,
     }))
   } catch (error) {
@@ -64,7 +65,8 @@ export async function crearUsuario(
     if (!nombre || nombre.length > 100) {
       return { ok: false, error: 'El nombre de usuario debe tener entre 1 y 100 caracteres.' }
     }
-    if (!ROLES_VALIDOS.includes(rol as RolUsuario)) {
+    const rolNormalizado = rol.toUpperCase() as RolUsuario
+    if (!ROLES_VALIDOS.includes(rolNormalizado)) {
       return { ok: false, error: 'Rol inválido. Solo se permiten ADMIN o JUBILA.' }
     }
     if (contrasenaInicial.length < 5 || contrasenaInicial.length > 25) {
@@ -76,14 +78,17 @@ export async function crearUsuario(
       return { ok: false, error: 'Ya existe un usuario con ese nombre.' }
     }
 
+    const rolJubila = await prisma.rOL_JUBILA.findUnique({ where: { NOMBRE_ROL: rolNormalizado } })
+    if (!rolJubila) return { ok: false, error: 'El rol de JUBILA no está configurado en la base de datos.' }
+
     const hash = await bcrypt.hash(contrasenaInicial, 12)
     await prisma.uSUARIO.create({
       data: {
         NOMBRE_USUARIO: nombre,
         CONTRASENA_USUARIO: hash,
         DEBE_CAMBIAR_CONTRASENA: true,
-        ROL: (rol as RolUsuario).toUpperCase() === 'ADMIN' ? 'ADMIN' : 'JUBILA',
         JUBILA: true,
+        ID_ROL_JUBILA: rolJubila.ID_ROL_JUBILA,
       },
     })
     return { ok: true }
@@ -96,20 +101,33 @@ export async function crearUsuario(
 export async function actualizarRolUsuario(id: number, rol: string): Promise<RespuestaAccion> {
   try {
     const admin = await requireAdmin()
-    if (!ROLES_VALIDOS.includes(rol as RolUsuario)) {
+    const rolNormalizado = rol.toUpperCase() as RolUsuario
+    if (!ROLES_VALIDOS.includes(rolNormalizado)) {
       return { ok: false, error: 'Rol inválido. Solo se permiten ADMIN o JUBILA.' }
     }
 
-    const target = await prisma.uSUARIO.findUnique({ where: { ID_USUARIO: id } })
+    const [target, rolJubila, rolAdmin] = await Promise.all([
+      prisma.uSUARIO.findUnique({
+        where: { ID_USUARIO: id },
+        include: { ROL_JUBILA: true },
+      }),
+      prisma.rOL_JUBILA.findUnique({ where: { NOMBRE_ROL: rolNormalizado } }),
+      prisma.rOL_JUBILA.findUnique({ where: { NOMBRE_ROL: 'ADMIN' } }),
+    ])
     if (!target) {
       return { ok: false, error: 'El usuario no existe.' }
     }
+    if (!rolJubila || !rolAdmin) {
+      return { ok: false, error: 'Los roles de JUBILA no están configurados en la base de datos.' }
+    }
 
-    if (id === admin.userId && rol !== 'ADMIN') {
+    if (id === admin.userId && rolNormalizado !== 'ADMIN') {
       return { ok: false, error: 'No podés quitarte tu propio rol ADMIN.' }
     }
-    if (rol !== 'ADMIN' && target.ROL === 'ADMIN') {
-      const adminsRestantes = await prisma.uSUARIO.count({ where: { ROL: 'ADMIN' } })
+    if (rolNormalizado !== 'ADMIN' && target.ID_ROL_JUBILA === rolAdmin.ID_ROL_JUBILA) {
+      const adminsRestantes = await prisma.uSUARIO.count({
+        where: { ID_ROL_JUBILA: rolAdmin.ID_ROL_JUBILA, JUBILA: true },
+      })
       if (adminsRestantes <= 1) {
         return { ok: false, error: 'Debe existir al menos un usuario ADMIN en el sistema.' }
       }
@@ -117,7 +135,7 @@ export async function actualizarRolUsuario(id: number, rol: string): Promise<Res
 
     await prisma.uSUARIO.update({
       where: { ID_USUARIO: id },
-      data: { ROL: rol.toUpperCase() === 'ADMIN' ? 'ADMIN' : 'JUBILA' },
+      data: { ID_ROL_JUBILA: rolJubila.ID_ROL_JUBILA },
     })
     return { ok: true }
   } catch (error) {
@@ -129,7 +147,9 @@ export async function actualizarRolUsuario(id: number, rol: string): Promise<Res
 export async function resetearContrasenaUsuario(id: number, contrasenaTemporal: string): Promise<RespuestaAccion> {
   try {
     await requireAdmin()
-    const target = await prisma.uSUARIO.findUnique({ where: { ID_USUARIO: id } })
+    const target = await prisma.uSUARIO.findUnique({
+      where: { ID_USUARIO: id },
+    })
     if (!target) {
       return { ok: false, error: 'El usuario no existe.' }
     }
@@ -152,15 +172,20 @@ export async function resetearContrasenaUsuario(id: number, contrasenaTemporal: 
 export async function eliminarUsuario(id: number): Promise<RespuestaAccion> {
   try {
     const admin = await requireAdmin()
-    const target = await prisma.uSUARIO.findUnique({ where: { ID_USUARIO: id } })
+    const target = await prisma.uSUARIO.findUnique({
+      where: { ID_USUARIO: id },
+      include: { ROL_JUBILA: true },
+    })
     if (!target) {
       return { ok: false, error: 'El usuario no existe.' }
     }
     if (id === admin.userId) {
       return { ok: false, error: 'No podés eliminar tu propia cuenta.' }
     }
-    if (target.ROL === 'ADMIN') {
-      const adminsRestantes = await prisma.uSUARIO.count({ where: { ROL: 'ADMIN' } })
+    if (target.ROL_JUBILA?.NOMBRE_ROL === 'ADMIN') {
+      const adminsRestantes = await prisma.uSUARIO.count({
+        where: { ID_ROL_JUBILA: target.ID_ROL_JUBILA, JUBILA: true },
+      })
       if (adminsRestantes <= 1) {
         return { ok: false, error: 'Debe existir al menos un usuario ADMIN en el sistema.' }
       }

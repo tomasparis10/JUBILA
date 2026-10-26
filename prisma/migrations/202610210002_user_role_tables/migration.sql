@@ -1,0 +1,76 @@
+-- Separa los roles por sistema y migra el rol general existente.
+-- El acceso a cada aplicación continúa indicado por JUBILA/RETENCIONES.
+
+IF OBJECT_ID(N'dbo.Rol_Jubila', N'U') IS NULL
+BEGIN
+  CREATE TABLE [dbo].[Rol_Jubila] (
+    [ID_ROL_JUBILA] int IDENTITY(1,1) NOT NULL,
+    [NOMBRE_ROL] varchar(32) NOT NULL,
+    CONSTRAINT [PK_Rol_Jubila] PRIMARY KEY ([ID_ROL_JUBILA]),
+    CONSTRAINT [UQ_Rol_Jubila_NOMBRE_ROL] UNIQUE ([NOMBRE_ROL])
+  );
+END;
+
+IF OBJECT_ID(N'dbo.Rol_Retenciones', N'U') IS NULL
+BEGIN
+  CREATE TABLE [dbo].[Rol_Retenciones] (
+    [ID_ROL_RETENCIONES] int IDENTITY(1,1) NOT NULL,
+    [NOMBRE_ROL] varchar(32) NOT NULL,
+    CONSTRAINT [PK_Rol_Retenciones] PRIMARY KEY ([ID_ROL_RETENCIONES]),
+    CONSTRAINT [UQ_Rol_Retenciones_NOMBRE_ROL] UNIQUE ([NOMBRE_ROL])
+  );
+END;
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Rol_Jubila] WHERE [NOMBRE_ROL] = 'ADMIN')
+  INSERT INTO [dbo].[Rol_Jubila] ([NOMBRE_ROL]) VALUES ('ADMIN');
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Rol_Jubila] WHERE [NOMBRE_ROL] = 'JUBILA')
+  INSERT INTO [dbo].[Rol_Jubila] ([NOMBRE_ROL]) VALUES ('JUBILA');
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Rol_Retenciones] WHERE [NOMBRE_ROL] = 'Administrador')
+  INSERT INTO [dbo].[Rol_Retenciones] ([NOMBRE_ROL]) VALUES ('Administrador');
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Rol_Retenciones] WHERE [NOMBRE_ROL] = 'Retenciones')
+  INSERT INTO [dbo].[Rol_Retenciones] ([NOMBRE_ROL]) VALUES ('Retenciones');
+
+IF COL_LENGTH(N'dbo.USUARIO', N'ID_ROL_JUBILA') IS NULL
+  ALTER TABLE [dbo].[USUARIO] ADD [ID_ROL_JUBILA] int NULL;
+IF COL_LENGTH(N'dbo.USUARIO', N'ID_ROL_RETENCIONES') IS NULL
+  ALTER TABLE [dbo].[USUARIO] ADD [ID_ROL_RETENCIONES] int NULL;
+
+-- Migrar el antiguo ROL a la tabla de roles de JUBILA.
+IF COL_LENGTH(N'dbo.USUARIO', N'ROL') IS NOT NULL
+BEGIN
+  EXEC(N'
+    UPDATE u
+    SET u.[ID_ROL_JUBILA] = r.[ID_ROL_JUBILA]
+    FROM [dbo].[USUARIO] AS u
+    JOIN [dbo].[Rol_Jubila] AS r
+      ON r.[NOMBRE_ROL] = CASE WHEN u.[ROL] = ''ADMIN'' THEN ''ADMIN'' ELSE ''JUBILA'' END
+    WHERE u.[ID_ROL_JUBILA] IS NULL AND u.[JUBILA] = 1;
+
+    UPDATE u
+    SET u.[ID_ROL_RETENCIONES] = r.[ID_ROL_RETENCIONES]
+    FROM [dbo].[USUARIO] AS u
+    JOIN [dbo].[Rol_Retenciones] AS r
+      ON r.[NOMBRE_ROL] = CASE WHEN u.[ROL] = ''ADMIN'' THEN ''Administrador'' ELSE ''Retenciones'' END
+    WHERE u.[ID_ROL_RETENCIONES] IS NULL AND u.[RETENCIONES] = 1;
+  ');
+END;
+
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_USUARIO_ROL_JUBILA')
+  ALTER TABLE [dbo].[USUARIO] ADD CONSTRAINT [FK_USUARIO_ROL_JUBILA]
+    FOREIGN KEY ([ID_ROL_JUBILA]) REFERENCES [dbo].[Rol_Jubila] ([ID_ROL_JUBILA]);
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_USUARIO_ROL_RETENCIONES')
+  ALTER TABLE [dbo].[USUARIO] ADD CONSTRAINT [FK_USUARIO_ROL_RETENCIONES]
+    FOREIGN KEY ([ID_ROL_RETENCIONES]) REFERENCES [dbo].[Rol_Retenciones] ([ID_ROL_RETENCIONES]);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_USUARIO_ID_ROL_JUBILA' AND [object_id] = OBJECT_ID(N'dbo.USUARIO'))
+  CREATE INDEX [IX_USUARIO_ID_ROL_JUBILA] ON [dbo].[USUARIO] ([ID_ROL_JUBILA]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_USUARIO_ID_ROL_RETENCIONES' AND [object_id] = OBJECT_ID(N'dbo.USUARIO'))
+  CREATE INDEX [IX_USUARIO_ID_ROL_RETENCIONES] ON [dbo].[USUARIO] ([ID_ROL_RETENCIONES]);
+
+-- Quitar el default del antiguo ROL y luego la columna ya migrada.
+IF COL_LENGTH(N'dbo.USUARIO', N'ROL') IS NOT NULL
+BEGIN
+  IF OBJECT_ID(N'dbo.DF_USUARIO_ROL', N'D') IS NOT NULL
+    ALTER TABLE [dbo].[USUARIO] DROP CONSTRAINT [DF_USUARIO_ROL];
+  ALTER TABLE [dbo].[USUARIO] DROP COLUMN [ROL];
+END;

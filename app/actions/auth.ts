@@ -20,6 +20,7 @@ export interface LoginResult {
   username?: string
   userId?: number
   role?: string
+  retencionesRole?: string | null
   mustChangePassword?: boolean
   jubila?: boolean
   error?: string
@@ -52,6 +53,7 @@ export async function loginUsuario(
 
     const usuario = await prisma.uSUARIO.findUnique({
       where: { NOMBRE_USUARIO: username },
+      include: { ROL_JUBILA: true, ROL_RETENCIONES: true },
     })
 
     if (!usuario) {
@@ -68,7 +70,7 @@ export async function loginUsuario(
       recordLoginFailure(username, clientAddress)
       return { ok: false, error: 'Usuario o contraseña incorrectos.' }
     }
-    if (!usuario.JUBILA) {
+    if (!usuario.JUBILA || !usuario.ROL_JUBILA) {
       return { ok: false, error: 'Este usuario no tiene habilitado el acceso a JUBILA.' }
     }
 
@@ -97,7 +99,8 @@ export async function loginUsuario(
       ok: true,
       username: usuario.NOMBRE_USUARIO,
       userId: usuario.ID_USUARIO,
-      role: usuario.ROL,
+      role: usuario.ROL_JUBILA.NOMBRE_ROL,
+      retencionesRole: usuario.ROL_RETENCIONES?.NOMBRE_ROL ?? null,
       mustChangePassword: usuario.DEBE_CAMBIAR_CONTRASENA || !tieneHashBcrypt,
       jubila: usuario.JUBILA,
     }
@@ -169,6 +172,7 @@ export async function getCurrentSession(): Promise<LoginResult> {
       username: session.username,
       userId: session.userId,
       role: session.role,
+      retencionesRole: session.retencionesRole,
       mustChangePassword: session.mustChangePassword,
       jubila: session.jubila,
     }

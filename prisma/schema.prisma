@@ -152,10 +152,11 @@ model USUARIO {
   NOMBRE_USUARIO                              String                @unique(map: "UQ__USUARIO__1E139900200EE1AC") @db.VarChar(255)
   CONTRASENA_USUARIO                          String                @db.VarChar(255)
   DEBE_CAMBIAR_CONTRASENA                     Boolean               @default(true)
-  // Rol administrativo del sistema; los accesos a los sistemas se controlan con sus indicadores.
-  ROL                                         String                @default("JUBILA") @db.VarChar(20)
+  // Cada sistema conserva su indicador de acceso y asigna su rol mediante su tabla de catálogo.
   JUBILA                                      Boolean               @default(true, map: "DF_USUARIO_JUBILA")
   RETENCIONES                                 Boolean               @default(false, map: "DF_USUARIO_RETENCIONES")
+  ID_ROL_JUBILA                               Int?
+  ID_ROL_RETENCIONES                          Int?
   ARCHIVO_JUBILACION                          ARCHIVO_JUBILACION[]                 @relation("ARCHIVO_JUBILACION_USUARIO_SUBIDA")
   ARCHIVO_JUBILACION_USUARIO_ELIMINACION     ARCHIVO_JUBILACION[]                 @relation("ARCHIVO_JUBILACION_USUARIO_ELIMINACION")
   DATOS_PERSONALES_AGENTE_JUBILA              DATOS_PERSONALES_AGENTE_JUBILA[]
@@ -163,7 +164,28 @@ model USUARIO {
   HISTORIAL_CAUSA_BAJA                         HISTORIAL_CAUSA_BAJA[]
   JUBILA_JUBILA_USUARIO_CREACIONToUSUARIO     JUBILA[]              @relation("JUBILA_USUARIO_CREACIONToUSUARIO")
   JUBILA_JUBILA_USUARIO_MODIFICACIONToUSUARIO JUBILA[]              @relation("JUBILA_USUARIO_MODIFICACIONToUSUARIO")
+  ROL_JUBILA                                  ROL_JUBILA?            @relation(fields: [ID_ROL_JUBILA], references: [ID_ROL_JUBILA], onDelete: NoAction, onUpdate: NoAction, map: "FK_USUARIO_ROL_JUBILA")
+  ROL_RETENCIONES                             ROL_RETENCIONES?       @relation(fields: [ID_ROL_RETENCIONES], references: [ID_ROL_RETENCIONES], onDelete: NoAction, onUpdate: NoAction, map: "FK_USUARIO_ROL_RETENCIONES")
   SESION                                      SESION[]
+
+  @@index([ID_ROL_JUBILA], map: "IX_USUARIO_ID_ROL_JUBILA")
+  @@index([ID_ROL_RETENCIONES], map: "IX_USUARIO_ID_ROL_RETENCIONES")
+}
+
+model ROL_JUBILA {
+  ID_ROL_JUBILA Int       @id(map: "PK_Rol_Jubila") @default(autoincrement())
+  NOMBRE_ROL    String    @unique(map: "UQ_Rol_Jubila_NOMBRE_ROL") @db.VarChar(32)
+  USUARIO       USUARIO[]
+
+  @@map("Rol_Jubila")
+}
+
+model ROL_RETENCIONES {
+  ID_ROL_RETENCIONES Int       @id(map: "PK_Rol_Retenciones") @default(autoincrement())
+  NOMBRE_ROL         String    @unique(map: "UQ_Rol_Retenciones_NOMBRE_ROL") @db.VarChar(32)
+  USUARIO            USUARIO[]
+
+  @@map("Rol_Retenciones")
 }
 
 model CARRERA_ADMINISTRATIVA {
